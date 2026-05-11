@@ -7,51 +7,51 @@
 <style>
 :root{--bg:#0f1117;--bg2:#1a1d2e;--card:#1e2235;--code:#151822;--t1:#e0e0e0;--t2:#a0a8c0;--blue:#4a9eff;--cyan:#22d3ee;--green:#34d399;--purple:#a78bfa;--orange:#fb923c;--pink:#f472b6;--red:#ef4444;--yellow:#fbbf24;--border:#2a2f45;--glow:rgba(74,158,255,0.15)}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--t1);line-height:1.8;overflow-x:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--t1);line-height:1.9;overflow-x:hidden;font-size:18px}
 .hero{position:relative;padding:80px 0 60px;text-align:center;background:linear-gradient(135deg,#0f1117 0%,#1a1040 50%,#0f1117 100%);overflow:hidden}
 .hero::before{content:'';position:absolute;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(ellipse at 30% 50%,rgba(74,158,255,0.08) 0%,transparent 60%),radial-gradient(ellipse at 70% 50%,rgba(167,139,250,0.06) 0%,transparent 60%);animation:g 8s ease-in-out infinite alternate}
 @keyframes g{0%{transform:translate(0,0)}100%{transform:translate(-2%,1%)}}
-.hero h1{position:relative;font-size:2.8em;font-weight:700;background:linear-gradient(135deg,var(--blue),var(--cyan),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:16px}
-.hero .sub{position:relative;font-size:1.2em;color:var(--t2);max-width:700px;margin:0 auto}
+.hero h1{position:relative;font-size:3.2em;font-weight:700;background:linear-gradient(135deg,var(--blue),var(--cyan),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:16px}
+.hero .sub{position:relative;font-size:1.35em;color:var(--t2);max-width:900px;margin:0 auto}
 .hero .badges{position:relative;margin-top:24px;display:flex;justify-content:center;gap:12px;flex-wrap:wrap}
-.badge{display:inline-flex;align-items:center;gap:6px;padding:6px 16px;border-radius:20px;font-size:0.85em;font-weight:500;border:1px solid}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:8px 20px;border-radius:20px;font-size:1em;font-weight:500;border:1px solid}
 .badge-b{background:rgba(74,158,255,0.1);border-color:rgba(74,158,255,0.3);color:var(--blue)}
 .badge-c{background:rgba(34,211,238,0.1);border-color:rgba(34,211,238,0.3);color:var(--cyan)}
 .badge-g{background:rgba(52,211,153,0.1);border-color:rgba(52,211,153,0.3);color:var(--green)}
 .badge-p{background:rgba(167,139,250,0.1);border-color:rgba(167,139,250,0.3);color:var(--purple)}
 .toc{position:sticky;top:0;z-index:100;background:rgba(15,17,23,0.9);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);padding:0 20px}
-.toc-in{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:none;padding:8px 0}
+.toc-in{max-width:1800px;margin:0 auto;display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:none;padding:8px 0}
 .toc-in::-webkit-scrollbar{display:none}
-.toc a{white-space:nowrap;padding:6px 14px;border-radius:8px;color:var(--t2);text-decoration:none;font-size:0.85em;transition:all 0.2s}
+.toc a{white-space:nowrap;padding:8px 16px;border-radius:8px;color:var(--t2);text-decoration:none;font-size:1em;transition:all 0.2s}
 .toc a:hover{background:var(--glow);color:var(--blue)}
-.container{max-width:1200px;margin:0 auto;padding:0 24px}
-.section{padding:60px 0}
-.section-header{margin-bottom:40px}
-.section-num{display:inline-block;font-size:0.8em;font-weight:600;color:var(--blue);background:var(--glow);padding:4px 12px;border-radius:6px;margin-bottom:12px;letter-spacing:1px}
-.section-header h2{font-size:2em;font-weight:700;margin-bottom:12px;background:linear-gradient(90deg,var(--t1),var(--t2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.section-header p{font-size:1.05em;color:var(--t2);max-width:800px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:36px;margin-bottom:28px;transition:border-color 0.3s,box-shadow 0.3s}
+.container{max-width:1800px;margin:0 auto;padding:0 48px}
+.section{padding:80px 0}
+.section-header{margin-bottom:48px}
+.section-num{display:inline-block;font-size:0.9em;font-weight:600;color:var(--blue);background:var(--glow);padding:6px 16px;border-radius:6px;margin-bottom:14px;letter-spacing:1px}
+.section-header h2{font-size:2.4em;font-weight:700;margin-bottom:14px;background:linear-gradient(90deg,var(--t1),var(--t2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.section-header p{font-size:1.25em;color:var(--t2);max-width:1200px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:44px;margin-bottom:32px;transition:border-color 0.3s,box-shadow 0.3s}
 .card:hover{border-color:rgba(74,158,255,0.3);box-shadow:0 0 30px rgba(74,158,255,0.05)}
-.card h3{font-size:1.45em;margin-bottom:18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.card h3 .ic{...font-size:1.2em;flex-shrink:0}
+.card h3{font-size:1.6em;margin-bottom:20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.card h3 .ic{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.3em;flex-shrink:0}
 .ic-b{background:rgba(74,158,255,0.15)}.ic-c{background:rgba(34,211,238,0.15)}.ic-g{background:rgba(52,211,153,0.15)}.ic-p{background:rgba(167,139,250,0.15)}.ic-o{background:rgba(251,146,60,0.15)}.ic-pk{background:rgba(244,114,182,0.15)}
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
 .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px}
 @media(max-width:900px){.grid-2,.grid-3{grid-template-columns:1fr}}
 .arch{background:var(--code);border:1px solid var(--border);border-radius:16px;padding:40px 20px;margin:32px 0;overflow-x:auto}
 .arch svg{display:block;margin:0 auto;max-width:100%;height:auto}
-.code{background:var(--code);border:1px solid var(--border);border-radius:12px;padding:28px;margin:24px 0;overflow-x:auto;font-family:'JetBrains Mono',Consolas,monospace;font-size:0.95em;line-height:1.8;color:var(--t2)}
+.code{background:var(--code);border:1px solid var(--border);border-radius:12px;padding:32px;margin:28px 0;overflow-x:auto;font-family:'JetBrains Mono',Consolas,monospace;font-size:1.1em;line-height:1.8;color:var(--t2)}
 .code .c{color:#5c6370}.code .k{color:var(--purple)}.code .f{color:var(--blue)}.code .s{color:var(--green)}.code .n{color:var(--orange)}.code .t{color:var(--cyan)}.code .i{color:var(--pink)}
-table.st{width:100%;border-collapse:collapse;margin:20px 0;font-size:1em}
-.st th{background:rgba(74,158,255,0.1);color:var(--blue);padding:14px 18px;text-align:left;font-weight:600;border-bottom:2px solid var(--border)}
-.st td{padding:12px 18px;border-bottom:1px solid var(--border);color:var(--t2)}
+table.st{width:100%;border-collapse:collapse;margin:24px 0;font-size:1.1em}
+.st th{background:rgba(74,158,255,0.1);color:var(--blue);padding:16px 22px;text-align:left;font-weight:600;border-bottom:2px solid var(--border);font-size:1.1em}
+.st td{padding:14px 22px;border-bottom:1px solid var(--border);color:var(--t2);font-size:1.1em}
 .st tr:hover td{background:rgba(74,158,255,0.03)}
-.st code{background:var(--code);padding:2px 8px;border-radius:4px;font-size:0.95em;color:var(--cyan)}
-.hb{border-left:4px solid var(--blue);background:rgba(74,158,255,0.05);padding:20px 24px;border-radius:0 12px 12px 0;margin:20px 0}
+.st code{background:var(--code);padding:2px 8px;border-radius:4px;font-size:1em;color:var(--cyan)}
+.hb{border-left:4px solid var(--blue);background:rgba(74,158,255,0.05);padding:24px 28px;border-radius:0 12px 12px 0;margin:24px 0}
 .hb.g{border-left-color:var(--green);background:rgba(52,211,153,0.05)}.hb.o{border-left-color:var(--orange);background:rgba(251,146,60,0.05)}.hb.p{border-left-color:var(--purple);background:rgba(167,139,250,0.05)}.hb.r{border-left-color:var(--red);background:rgba(239,68,68,0.05)}
-.hb h4{margin-bottom:8px;font-size:1.05em}.hb p,.hb ul{color:var(--t2);font-size:1em}.hb ul{padding-left:20px;margin-top:8px}.hb li{margin-bottom:4px}
+.hb h4{margin-bottom:10px;font-size:1.25em}.hb p,.hb ul{color:var(--t2);font-size:1.1em}.hb ul{padding-left:24px;margin-top:10px}.hb li{margin-bottom:6px}
 .mc{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;text-align:center}
-.mv{font-size:2em;font-weight:700;margin-bottom:4px}.ml{font-size:0.85em;color:var(--t2)}
+.mv{font-size:2.2em;font-weight:700;margin-bottom:6px}.ml{font-size:1em;color:var(--t2)}
 .tl{position:relative;padding-left:40px}
 .tl::before{content:'';position:absolute;left:15px;top:0;bottom:0;width:2px;background:linear-gradient(180deg,var(--blue),var(--purple),var(--pink))}
 .tli{position:relative;margin-bottom:32px}
@@ -59,17 +59,17 @@ table.st{width:100%;border-collapse:collapse;margin:20px 0;font-size:1em}
 .tli:nth-child(2)::before{background:var(--cyan);box-shadow:0 0 10px rgba(34,211,238,0.3)}
 .tli:nth-child(3)::before{background:var(--purple);box-shadow:0 0 10px rgba(167,139,250,0.3)}
 .tli:nth-child(4)::before{background:var(--pink);box-shadow:0 0 10px rgba(244,114,182,0.3)}
-.tlt{font-size:1.1em;font-weight:600;margin-bottom:8px}.tlc{color:var(--t2);font-size:1em}
-.tag{display:inline-block;padding:2px 10px;border-radius:6px;font-size:0.8em;font-weight:500}
+.tlt{font-size:1.35em;font-weight:600;margin-bottom:10px}.tlc{color:var(--t2);font-size:1.15em}
+.tag{display:inline-block;padding:3px 12px;border-radius:6px;font-size:0.9em;font-weight:500}
 .tag-e{background:rgba(52,211,153,0.15);color:var(--green)}.tag-n{background:rgba(251,146,60,0.15);color:var(--orange)}.tag-x{background:rgba(74,158,255,0.15);color:var(--blue)}
 .div{height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent);margin:40px 0}
 .footer{text-align:center;padding:40px 0;color:var(--t2);font-size:0.85em;border-top:1px solid var(--border)}
 em{color:var(--blue);font-style:normal;font-weight:500}strong{color:var(--t1)}
-.mb{background:var(--code);border:1px solid var(--border);border-radius:12px;padding:28px 36px;margin:24px 0;font-family:Georgia,serif;font-size:1.15em;line-height:2.1;overflow-x:auto}
-.mb .obj{color:var(--blue);font-weight:600}.mb .con{color:var(--orange)}.mb .par{color:var(--green)}.mb .nt{color:var(--t2);font-size:0.85em;font-family:sans-serif}
-.subsec{margin-bottom:48px}.subsec h3{font-size:1.4em;margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid var(--border)}.subsec h4{font-size:1.1em;margin:20px 0 12px;color:var(--cyan)}.subsec p{color:var(--t2);margin-bottom:12px}
+.mb{background:var(--code);border:1px solid var(--border);border-radius:12px;padding:32px 44px;margin:28px 0;font-family:Georgia,serif;font-size:1.3em;line-height:2.1;overflow-x:auto}
+.mb .obj{color:var(--blue);font-weight:600}.mb .con{color:var(--orange)}.mb .par{color:var(--green)}.mb .nt{color:var(--t2);font-size:0.95em;font-family:sans-serif}
+.subsec{margin-bottom:48px}.subsec h3{font-size:1.5em;margin-bottom:24px;padding-bottom:14px;border-bottom:1px solid var(--border)}.subsec h4{font-size:1.2em;margin:24px 0 14px;color:var(--cyan)}.subsec p{color:var(--t2);margin-bottom:14px}
 .vs th:first-child{width:18%}
-@media(max-width:768px){.hero h1{font-size:1.8em}.section-header h2{font-size:1.5em}.card{padding:20px}.grid-3{grid-template-columns:1fr 1fr}}
+@media(max-width:768px){.hero h1{font-size:1.8em}.section-header h2{font-size:1.5em}.card{padding:20px}.grid-3{grid-template-columns:1fr 1fr}.container{padding:0 20px}}
 </style>
 </head>
 <body>
@@ -464,96 +464,95 @@ R = <span class="obj">α</span> · 舒适度(‖q̈‖⁻¹)&emsp;+&emsp;<span c
 </div>
 
 <div class="arch">
-<svg viewBox="0 0 920 680" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 1100 580" xmlns="http://www.w3.org/2000/svg">
 <defs>
 <pattern id="g2" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#2a2f45" stroke-width="0.5" opacity="0.3"/></pattern>
-<marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#4a9eff"/></marker>
-<marker id="arrG" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#34d399"/></marker>
-<marker id="arrC" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#22d3ee"/></marker>
-<marker id="arrO" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fb923c"/></marker>
+<marker id="arr" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><path d="M0,0 L10,3.5 L0,7" fill="#4a9eff"/></marker>
+<marker id="arrG" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><path d="M0,0 L10,3.5 L0,7" fill="#34d399"/></marker>
+<marker id="arrC" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><path d="M0,0 L10,3.5 L0,7" fill="#22d3ee"/></marker>
+<marker id="arrO" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><path d="M0,0 L10,3.5 L0,7" fill="#fb923c"/></marker>
 </defs>
-<rect width="920" height="680" fill="url(#g2)"/>
+<rect width="1100" height="580" fill="url(#g2)"/>
 
-<!-- D435i -->
-<rect x="360" y="10" width="200" height="50" rx="10" fill="rgba(74,158,255,0.15)" stroke="#4a9eff" stroke-width="1.5"/>
-<text x="460" y="40" fill="#4a9eff" font-size="14" text-anchor="middle" font-weight="600">📷 D435i 深度相机</text>
+<!-- Row 1: D435i -->
+<rect x="420" y="15" width="260" height="50" rx="10" fill="rgba(74,158,255,0.15)" stroke="#4a9eff" stroke-width="1.5"/>
+<text x="550" y="45" fill="#4a9eff" font-size="16" text-anchor="middle" font-weight="600">📷 D435i 深度相机</text>
 
-<!-- Branch left: infra+imu -->
-<line x1="400" y1="60" x2="200" y2="110" stroke="#4a9eff" stroke-width="1.5" marker-end="url(#arr)"/>
-<text x="280" y="80" fill="#a0a8c0" font-size="10" text-anchor="middle">红外双目 + IMU</text>
+<!-- Branch left -->
+<line x1="470" y1="65" x2="230" y2="105" stroke="#4a9eff" stroke-width="2" marker-end="url(#arr)"/>
+<text x="340" y="78" fill="#a0a8c0" font-size="13" text-anchor="middle">红外双目 + IMU</text>
 
-<!-- Branch right: depth+points -->
-<line x1="520" y1="60" x2="720" y2="110" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrC)"/>
-<text x="640" y="80" fill="#a0a8c0" font-size="10" text-anchor="middle">深度图 + 点云</text>
+<!-- Branch right -->
+<line x1="630" y1="65" x2="880" y2="105" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrC)"/>
+<text x="760" y="78" fill="#a0a8c0" font-size="13" text-anchor="middle">深度图 + 点云</text>
 
-<!-- VINS -->
-<rect x="100" y="110" width="200" height="60" rx="10" fill="rgba(34,211,238,0.1)" stroke="#22d3ee" stroke-width="1.5"/>
-<text x="200" y="138" fill="#22d3ee" font-size="13" text-anchor="middle" font-weight="600">📍 OpenVINS</text>
-<text x="200" y="155" fill="#a0a8c0" font-size="10" text-anchor="middle">视觉惯性里程计</text>
+<!-- Row 2: VINS -->
+<rect x="120" y="110" width="220" height="55" rx="10" fill="rgba(34,211,238,0.1)" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="230" y="133" fill="#22d3ee" font-size="14" text-anchor="middle" font-weight="600">📍 OpenVINS</text>
+<text x="230" y="153" fill="#a0a8c0" font-size="11" text-anchor="middle">视觉惯性里程计</text>
 
-<!-- Elevation Map -->
-<rect x="620" y="110" width="200" height="60" rx="10" fill="rgba(34,211,238,0.1)" stroke="#22d3ee" stroke-width="1.5"/>
-<text x="720" y="138" fill="#22d3ee" font-size="13" text-anchor="middle" font-weight="600">🗺️ Elevation Map</text>
-<text x="720" y="155" fill="#a0a8c0" font-size="10" text-anchor="middle">GPU 高程建图</text>
+<!-- Row 2: Elevation Map -->
+<rect x="770" y="110" width="220" height="55" rx="10" fill="rgba(34,211,238,0.1)" stroke="#22d3ee" stroke-width="1.5"/>
+<text x="880" y="133" fill="#22d3ee" font-size="14" text-anchor="middle" font-weight="600">🗺️ Elevation Map</text>
+<text x="880" y="153" fill="#a0a8c0" font-size="11" text-anchor="middle">GPU 高程建图</text>
 
-<!-- VINS output: TF + pose -->
-<line x1="200" y1="170" x2="200" y2="230" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrC)"/>
-<text x="200" y="205" fill="#a0a8c0" font-size="10" text-anchor="middle">TF · 6DoF · CoM</text>
+<!-- VINS output -->
+<line x1="230" y1="165" x2="230" y2="215" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrC)"/>
+<text x="230" y="195" fill="#a0a8c0" font-size="12" text-anchor="middle">TF · 6DoF · CoM</text>
 
-<!-- ElevMap output: GridMap -->
-<line x1="720" y1="170" x2="720" y2="230" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrC)"/>
-<text x="720" y="205" fill="#a0a8c0" font-size="10" text-anchor="middle">GridMap</text>
+<!-- ElevMap output -->
+<line x1="880" y1="165" x2="880" y2="215" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrC)"/>
+<text x="880" y="195" fill="#a0a8c0" font-size="12" text-anchor="middle">GridMap</text>
 
-<!-- Terrain Extractor -->
-<rect x="560" y="230" width="320" height="60" rx="10" fill="rgba(251,146,60,0.12)" stroke="#fb923c" stroke-width="1.5"/>
-<text x="720" y="258" fill="#fb923c" font-size="13" text-anchor="middle" font-weight="600">🔍 Terrain Feature Extractor ⭐新增</text>
-<text x="720" y="275" fill="#a0a8c0" font-size="10" text-anchor="middle">坡度 · 高度剖面 · 落脚点 · 粗糙度</text>
+<!-- Row 3: Terrain Extractor -->
+<rect x="650" y="220" width="340" height="55" rx="10" fill="rgba(251,146,60,0.12)" stroke="#fb923c" stroke-width="1.5"/>
+<text x="820" y="243" fill="#fb923c" font-size="14" text-anchor="middle" font-weight="600">🔍 Terrain Feature Extractor ⭐新增</text>
+<text x="820" y="263" fill="#a0a8c0" font-size="11" text-anchor="middle">坡度 · 高度剖面 · 落脚点 · 粗糙度</text>
 
-<!-- Connect VINS+EM to Terrain -->
-<line x1="280" y1="200" x2="580" y2="255" stroke="#a0a8c0" stroke-width="1" stroke-dasharray="4"/>
-<line x1="720" y1="230" x2="720" y2="230" stroke="#fb923c" stroke-width="1.5"/>
+<!-- VINS→Terrain -->
+<line x1="340" y1="180" x2="670" y2="240" stroke="#a0a8c0" stroke-width="1.5" stroke-dasharray="5"/>
+<!-- ElevMap→Terrain -->
+<line x1="880" y1="165" x2="820" y2="220" stroke="#fb923c" stroke-width="2"/>
 
-<!-- Terrain outputs -->
-<!-- Left: slope to CPG -->
-<line x1="620" y1="260" x2="350" y2="340" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrO)"/>
-<text x="470" y="295" fill="#fb923c" font-size="10" text-anchor="middle">坡度/粗糙度 (粗调)</text>
+<!-- Terrain→CPG -->
+<line x1="690" y1="275" x2="390" y2="340" stroke="#fb923c" stroke-width="2" marker-end="url(#arrO)"/>
+<text x="530" y="298" fill="#fb923c" font-size="13" text-anchor="middle">坡度 / 粗糙度 → 粗调</text>
 
-<!-- Right: profile+foot to NMPC -->
-<line x1="720" y1="290" x2="560" y2="400" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrO)"/>
-<text x="660" y="350" fill="#fb923c" font-size="10" text-anchor="middle">高度剖面+落脚点 (硬约束)</text>
+<!-- Terrain→NMPC -->
+<line x1="880" y1="275" x2="680" y2="355" stroke="#fb923c" stroke-width="2" marker-end="url(#arrO)"/>
+<text x="810" y="318" fill="#fb923c" font-size="13" text-anchor="middle">高度剖面 + 落脚点 → 硬约束</text>
 
-<!-- CPG Controller -->
-<rect x="160" y="340" width="240" height="70" rx="12" fill="rgba(74,158,255,0.12)" stroke="#4a9eff" stroke-width="1.5"/>
-<text x="280" y="370" fill="#4a9eff" font-size="14" text-anchor="middle" font-weight="600">📐 CPG Controller</text>
-<text x="280" y="390" fill="#a0a8c0" font-size="10" text-anchor="middle">Hopf振荡器 + 傅里叶映射 + 地形自适应</text>
+<!-- Row 4: CPG -->
+<rect x="170" y="350" width="280" height="60" rx="12" fill="rgba(74,158,255,0.12)" stroke="#4a9eff" stroke-width="1.5"/>
+<text x="310" y="375" fill="#4a9eff" font-size="15" text-anchor="middle" font-weight="600">📐 CPG Controller</text>
+<text x="310" y="397" fill="#a0a8c0" font-size="11" text-anchor="middle">Hopf振荡器 + 傅里叶映射 + 地形自适应</text>
 
-<!-- CPG output -->
-<line x1="370" y1="375" x2="440" y2="430" stroke="#4a9eff" stroke-width="1.5" marker-end="url(#arr)"/>
-<text x="420" y="400" fill="#4a9eff" font-size="10">q_ref(t)</text>
+<!-- CPG→NMPC -->
+<line x1="440" y1="380" x2="530" y2="380" stroke="#4a9eff" stroke-width="2" marker-end="url(#arr)"/>
+<text x="485" y="372" fill="#4a9eff" font-size="14" font-weight="500">q_ref(t)</text>
 
-<!-- NMPC -->
-<rect x="440" y="430" width="280" height="70" rx="12" fill="rgba(52,211,153,0.12)" stroke="#34d399" stroke-width="1.5"/>
-<text x="580" y="460" fill="#34d399" font-size="14" text-anchor="middle" font-weight="600">⚡ NMPC 优化器</text>
-<text x="580" y="480" fill="#a0a8c0" font-size="10" text-anchor="middle">CasADi / acados · 50-100Hz</text>
+<!-- Row 4: NMPC -->
+<rect x="530" y="350" width="320" height="60" rx="12" fill="rgba(52,211,153,0.12)" stroke="#34d399" stroke-width="1.5"/>
+<text x="690" y="375" fill="#34d399" font-size="15" text-anchor="middle" font-weight="600">⚡ NMPC 优化器</text>
+<text x="690" y="397" fill="#a0a8c0" font-size="11" text-anchor="middle">CasADi / acados · 50-100Hz</text>
 
-<!-- NMPC output -->
-<line x1="580" y1="500" x2="460" y2="570" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrG)"/>
-<text x="540" y="540" fill="#34d399" font-size="10">q_opt(t) · τ_opt(t)</text>
+<!-- NMPC→Exo -->
+<line x1="690" y1="410" x2="550" y2="470" stroke="#34d399" stroke-width="2" marker-end="url(#arrG)"/>
+<text x="635" y="438" fill="#34d399" font-size="14" font-weight="500">q_opt(t) · τ_opt(t)</text>
 
-<!-- Exoskeleton -->
-<rect x="300" y="570" width="320" height="50" rx="12" fill="rgba(167,139,250,0.15)" stroke="#a78bfa" stroke-width="1.5"/>
-<text x="460" y="600" fill="#a78bfa" font-size="14" text-anchor="middle" font-weight="600">🦾 外骨骼关节执行器</text>
+<!-- Row 5: Exoskeleton -->
+<rect x="370" y="475" width="360" height="45" rx="12" fill="rgba(167,139,250,0.15)" stroke="#a78bfa" stroke-width="1.5"/>
+<text x="550" y="503" fill="#a78bfa" font-size="15" text-anchor="middle" font-weight="600">🦾 外骨骼关节执行器</text>
 
-<!-- RL layer (dashed future) -->
-<rect x="60" y="500" width="200" height="80" rx="10" fill="rgba(244,114,182,0.08)" stroke="#f472b6" stroke-width="1" stroke-dasharray="6"/>
-<text x="160" y="530" fill="#f472b6" font-size="12" text-anchor="middle" font-weight="500">🧠 RL 个性化</text>
-<text x="160" y="550" fill="#a0a8c0" font-size="10" text-anchor="middle">(未来: 调节CPG参数)</text>
-<line x1="220" y1="500" x2="280" y2="410" stroke="#f472b6" stroke-width="1" stroke-dasharray="4" marker-end="url(#arr)"/>
+<!-- RL (future, left side) -->
+<rect x="40" y="430" width="190" height="80" rx="10" fill="rgba(244,114,182,0.08)" stroke="#f472b6" stroke-width="1" stroke-dasharray="6"/>
+<text x="135" y="462" fill="#f472b6" font-size="13" text-anchor="middle" font-weight="500">🧠 RL 个性化</text>
+<text x="135" y="484" fill="#a0a8c0" font-size="11" text-anchor="middle">(未来: 调节CPG参数)</text>
+<line x1="210" y1="445" x2="280" y2="390" stroke="#f472b6" stroke-width="1.5" stroke-dasharray="4" marker-end="url(#arr)"/>
 
-<!-- Safety fallback arrow -->
-<line x1="280" y1="410" x2="280" y2="430" stroke="var(--red)" stroke-width="1" stroke-dasharray="4"/>
-<text x="130" y="450" fill="var(--red)" font-size="9">安全降级</text>
-<line x1="200" y1="445" x2="280" y2="445" stroke="var(--red)" stroke-width="1" stroke-dasharray="4"/>
+<!-- Safety -->
+<text x="65" y="425" fill="var(--red)" font-size="12" font-weight="500">安全降级</text>
+<line x1="140" y1="430" x2="280" y2="430" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="5"/>
 </svg>
 </div>
 </section>
@@ -690,19 +689,25 @@ solver = ca.nlpsol(<span class="s">'solver'</span>, <span class="s">'ipopt'</spa
 <div class="card">
 <h3><span class="ic ic-o">📊</span> 特征提取流程</h3>
 <div class="arch">
-<svg viewBox="0 0 800 200" xmlns="http://www.w3.org/2000/svg">
-<rect width="800" height="200" fill="url(#g2)"/>
-<rect x="20" y="70" width="140" height="60" rx="8" fill="rgba(34,211,238,0.12)" stroke="#22d3ee"/><text x="90" y="100" fill="#22d3ee" font-size="11" text-anchor="middle" font-weight="600">GridMap</text><text x="90" y="115" fill="#a0a8c0" font-size="9" text-anchor="middle">elevation层</text>
-<line x1="160" y1="100" x2="200" y2="100" stroke="#a0a8c0" stroke-width="1.5" marker-end="url(#arr)"/>
-<rect x="200" y="70" width="140" height="60" rx="8" fill="rgba(251,146,60,0.12)" stroke="#fb923c"/><text x="270" y="100" fill="#fb923c" font-size="11" text-anchor="middle" font-weight="600">轨迹线采样</text><text x="270" y="115" fill="#a0a8c0" font-size="9" text-anchor="middle">沿行走方向N点</text>
-<line x1="340" y1="100" x2="380" y2="100" stroke="#a0a8c0" stroke-width="1.5" marker-end="url(#arr)"/>
-<rect x="380" y="50" width="120" height="35" rx="6" fill="rgba(74,158,255,0.1)" stroke="#4a9eff"/><text x="440" y="72" fill="#4a9eff" font-size="10" text-anchor="middle">高度剖面 h[]</text>
-<rect x="380" y="95" width="120" height="35" rx="6" fill="rgba(52,211,153,0.1)" stroke="#34d399"/><text x="440" y="117" fill="#34d399" font-size="10" text-anchor="middle">坡度 slope[]</text>
-<rect x="380" y="140" width="120" height="35" rx="6" fill="rgba(167,139,250,0.1)" stroke="#a78bfa"/><text x="440" y="162" fill="#a78bfa" font-size="10" text-anchor="middle">粗糙度 σ</text>
-<line x1="500" y1="68" x2="560" y2="68" stroke="#4a9eff" stroke-width="1" marker-end="url(#arr)"/>
-<line x1="500" y1="112" x2="560" y2="112" stroke="#34d399" stroke-width="1" marker-end="url(#arrG)"/>
-<line x1="500" y1="158" x2="560" y2="158" stroke="#a78bfa" stroke-width="1" marker-end="url(#arr)"/>
-<rect x="560" y="70" width="140" height="60" rx="8" fill="rgba(251,146,60,0.12)" stroke="#fb923c"/><text x="630" y="95" fill="#fb923c" font-size="11" text-anchor="middle" font-weight="600">最优落脚点</text><text x="630" y="115" fill="#a0a8c0" font-size="9" text-anchor="middle">find_best_foot_target()</text>
+<svg viewBox="0 0 900 220" xmlns="http://www.w3.org/2000/svg">
+<rect width="900" height="220" fill="url(#g2)"/>
+<rect x="20" y="70" width="150" height="70" rx="10" fill="rgba(34,211,238,0.12)" stroke="#22d3ee"/><text x="95" y="100" fill="#22d3ee" font-size="13" text-anchor="middle" font-weight="600">GridMap</text><text x="95" y="120" fill="#a0a8c0" font-size="10" text-anchor="middle">elevation层</text>
+<line x1="170" y1="105" x2="220" y2="105" stroke="#a0a8c0" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="220" y="70" width="160" height="70" rx="10" fill="rgba(251,146,60,0.12)" stroke="#fb923c"/><text x="300" y="100" fill="#fb923c" font-size="13" text-anchor="middle" font-weight="600">轨迹线采样</text><text x="300" y="120" fill="#a0a8c0" font-size="10" text-anchor="middle">沿行走方向N点</text>
+<line x1="380" y1="105" x2="420" y2="105" stroke="#a0a8c0" stroke-width="2"/>
+<line x1="420" y1="45" x2="420" y2="165" stroke="#a0a8c0" stroke-width="1.5"/>
+<line x1="420" y1="45" x2="440" y2="45" stroke="#a0a8c0" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="420" y1="105" x2="440" y2="105" stroke="#a0a8c0" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="420" y1="165" x2="440" y2="165" stroke="#a0a8c0" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="440" y="28" width="140" height="35" rx="8" fill="rgba(74,158,255,0.12)" stroke="#4a9eff"/><text x="510" y="50" fill="#4a9eff" font-size="11" text-anchor="middle" font-weight="500">高度剖面 h[]</text>
+<rect x="440" y="88" width="140" height="35" rx="8" fill="rgba(52,211,153,0.12)" stroke="#34d399"/><text x="510" y="110" fill="#34d399" font-size="11" text-anchor="middle" font-weight="500">坡度 slope[]</text>
+<rect x="440" y="148" width="140" height="35" rx="8" fill="rgba(167,139,250,0.12)" stroke="#a78bfa"/><text x="510" y="170" fill="#a78bfa" font-size="11" text-anchor="middle" font-weight="500">粗糙度 σ</text>
+<line x1="580" y1="45" x2="620" y2="45" stroke="#4a9eff" stroke-width="1.5"/>
+<line x1="580" y1="105" x2="620" y2="105" stroke="#34d399" stroke-width="1.5"/>
+<line x1="580" y1="165" x2="620" y2="165" stroke="#a78bfa" stroke-width="1.5"/>
+<line x1="620" y1="45" x2="620" y2="165" stroke="#a0a8c0" stroke-width="1.5"/>
+<line x1="620" y1="105" x2="640" y2="105" stroke="#a0a8c0" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="640" y="65" width="180" height="80" rx="10" fill="rgba(251,146,60,0.12)" stroke="#fb923c"/><text x="730" y="95" fill="#fb923c" font-size="13" text-anchor="middle" font-weight="600">最优落脚点</text><text x="730" y="115" fill="#a0a8c0" font-size="10" text-anchor="middle">find_best_foot_target()</text><text x="730" y="132" fill="#a0a8c0" font-size="9" text-anchor="middle">综合3个特征决策</text>
 </svg>
 </div>
 </div>
