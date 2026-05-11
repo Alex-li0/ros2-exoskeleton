@@ -1,0 +1,87 @@
+/elevation_mapping_node:
+  ros__parameters:
+    #### 基础参数 (Basic parameters) ########
+    drift_compensation_variance_inlier: 0.1   # 漂移补偿的方差内点阈值
+    checker_layer: 'elevation'                # 用于检查网格单元有效性的图层名称
+    initialized_variance: 10.0                # 每个单元格的初始方差值
+    resolution: 0.05                          # 地图分辨率 (单位：米)，建议设为 0.05 (5cm) 以获得更精细的地形
+    map_length: 5.0                           # 局部地图的总边长 (单位：米)，外骨骼建议 4.0 ~ 6.0
+    sensor_noise_factor: 0.05                 # 传感器噪声因子，点云噪声 ~ 该因子 * 距离的平方
+    mahalanobis_thresh: 2.0                   # 马氏距离阈值，超过此距离的点被视为离群值
+    outlier_variance: 0.01                    # 如果判定为离群值，为该单元格增加的方差值
+    max_drift: 0.1                            # 漂移补偿触发的最大允许漂移量 (安全保护机制)
+    drift_compensation_alpha: 0.1             # 漂移补偿的平滑 alpha 系数
+    time_variance: 0.0001                     # 每次更新方差时增加的时间方差值
+    max_variance: 100.0                       # 每个单元格允许的最大方差上限
+    initial_variance: 1000.0                  # 单元格的初始方差设置
+    traversability_inlier: 0.9                # 用于漂移补偿的高可通行性单元格比例
+    dilation_size: 3                          # 在通过性滤波之前的膨胀滤波尺寸
+    wall_num_thresh: 20                       # 陡坡检测阈值，点数超过此值时仅使用比当前高度高的点来强化墙壁边缘
+    min_height_drift_cnt: 100                 # 触发漂移补偿所需的最少有效单元格数量
+    position_noise_thresh: 0.01               # 触发漂移补偿的位置变动噪声阈值
+    orientation_noise_thresh: 0.01            # 触发漂移补偿的姿态变动噪声阈值
+    position_lowpass_alpha: 0.2               # 用于检测运动的位置低通滤波系数
+    orientation_lowpass_alpha: 0.2            # 用于检测运动的姿态低通滤波系数
+    min_valid_distance: 0.3                   # 点云过滤：剔除距离传感器过近的点 (建议设为 0.3m 避开外骨骼自身)
+    max_height_range: 3.0                     # 点云过滤：剔除高于传感器此距离的点 (防止天花板干扰)
+    ramped_height_range_a: 0.3                # 坡度高度过滤参数 A (z > max(d-b, 0)*a + c 则拒绝该点)
+    ramped_height_range_b: 1.0                # 坡度高度过滤参数 B
+    ramped_height_range_c: 0.2                # 坡度高度过滤参数 C
+    update_variance_fps: 5.0                  # 更新方差层的频率 (Hz)
+    update_pose_fps: 20.0                     # 更新机器人位姿及地图中心平移的频率 (Hz)
+    time_interval: 0.1                        # 时间图层的更新间隔
+    map_acquire_fps: 5.0                      # 从 GPU 内存读取原始地图的频率
+    publish_statistics_fps: 1.0               # 发布统计数据的频率
+    recordable_fps: 3.0                       # 点云记录的频率
+    enable_normal_arrow_publishing: false     # 是否在 RViz 中发布法向量箭头 (消耗资源)
+
+    #### 服务与话题名称 ########
+    masked_replace_service_mask_layer_name: 'mask'
+    save_map_default_topic: 'elevation_map'
+    save_map_storage_id: 'mcap'
+    service_namespace: '/elevation_mapping_cupy'
+
+    #### 射线追踪与清理 ########
+    max_ray_length: 5.0                       # 射线追踪清除视线障碍的最大长度
+    cleanup_step: 0.1                         # 可见性清理时的有效性层递减步长
+    cleanup_cos_thresh: 0.1                   # 可见性清理时的余弦值阈值
+
+    #### 可通行性 (Safety/Traversability) ########
+    safe_thresh: 0.7                          # 可通行性得分低于此值则视为不安全单元格
+    safe_min_thresh: 0.4                      # 区域内存在低于此值的单元格则多边形判定为不安全
+    max_unsafe_n: 10                          # 允许不安全单元格的最大数量
+
+    #### 多层地图清除 (Multi-floor setting) ########
+    overlap_clear_range_xy: 4.0               # 清除重叠区域的 XY 范围 (用于多楼层场景)
+    overlap_clear_range_z: 2.0                # 清除重叠区域的 Z 轴范围
+
+    #### 核心坐标系配置 (Crucial Frame Config) ########
+    # 这里根据你的 VINS 和 TF 桥接进行设置 [cite: 1, 5, 17]
+    map_frame: 'global'                       # VINS 输出的世界坐标系 
+    base_frame: 'imu'                         # 机器人基准坐标系，也是地图移动的中心 
+    corrected_map_frame: 'global'             # 修正后的地图坐标系
+
+    #### 功能开关 (Feature toggles) ########
+    enable_edge_sharpen: true                 # 开启边缘锐化 (让台阶更清晰)
+    enable_visibility_cleanup: true           # 开启可见性清理 (移动后自动清除盲区)
+    enable_drift_compensation: true           # 开启漂移补偿 (结合里程计修正)
+    enable_overlap_clearance: true            # 开启重叠清理
+    enable_pointcloud_publishing: false       # 是否发布处理后的点云 (建议 false 节省带宽)
+    enable_drift_corrected_TF_publishing: false # 是否发布修正后的 TF 变换
+
+    #### 通行性滤波器配置 ########
+    use_chainer: false                        # 是否使用 Chainer 后端 (设为 false 使用 PyTorch GPU 加速)
+
+    #### 上界约束 ########
+    use_only_above_for_upper_bound: false     # 是否仅使用上方点进行上界约束
+
+    #### 初始化器配置 (Initializer) ########
+    initialize_method: 'linear'               # 初始化方法：'nearest', 'linear', 'cubic'
+    initialize_frame_id: ['imu']              # 使用 imu 坐标系进行初始化 
+    initialize_tf_offset: [0.0]               # 初始化时的 Z 轴偏移量
+    dilation_size_initialize: 2               # 初始化后的膨胀大小
+    initialize_tf_grid_size: 1.0              # 初始化网格大小 (当 TF 数量小于 3 时有效)
+    use_initializer_at_start: true            # 节点启动时是否自动初始化
+
+    #### 插件配置 (Plugins) ########
+    # 这里会自动关联该包内默认的 plugin_config_file

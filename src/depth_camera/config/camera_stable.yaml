@@ -1,0 +1,34 @@
+/camera/camera:
+  ros__parameters:
+    # --- 基础开关 ---
+    camera_name: "camera"
+    enable_color: true
+    enable_depth: true
+    enable_gyro: true
+    enable_accel: true
+    
+    # --- VINS-Fusion 核心配置 ---
+    # 0=None, 1=Copy, 2=Linear_Interpolation
+    # 必须设为 2，将两路 IMU 信号合并为一路高频 /camera/imu
+    unite_imu_method: 2
+    
+    # --- 稳定性核心 (解决 USB -71 报错) ---
+    # 640x480 是 USB 2.0/3.0 混合环境下的最稳分辨率
+    rgb_camera:
+      profile: "640x480x30"
+    depth_module:
+      profile: "640x480x30"
+      
+    # --- 点云与后续算法配置 ---
+    # 强制开启 CPU 点云计算 (解决有深度无点云问题)
+    filters: "pointcloud"
+    pointcloud:
+      enable: true
+      # 允许无纹理点云 (防止 RGB 同步延迟导致点云被砍，保证数据量)
+      allow_no_texture_points: true
+      
+    # --- 关键对齐 ---
+    # 开启后，深度图会对齐到 RGB 坐标系
+    # 对 Elevation Mapping 生成彩色地图至关重要
+    align_depth:
+      enable: true

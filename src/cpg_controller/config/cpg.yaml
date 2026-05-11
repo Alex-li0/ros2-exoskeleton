@@ -1,0 +1,60 @@
+adaptive_cpg_node:
+  ros__parameters:
+    mu: 1.0
+    omega: 6.283185
+    gamma: 15.0
+    eta_w: 0.00      # 既然目前是纯离线回放，可以把学习率设为0
+    eta_omega: 0.00
+
+    joints:
+      left_hip3:
+        num_harmonics: 2
+        limit_min: -0.8
+        limit_max: 0.8
+        w_offset: 0.1000
+        # 数组索引: [0不用, 1倍频]
+        w_x: [0.0, -0.2972]
+        w_y: [0.0, 0.2671]
+        
+      left_knee:
+        num_harmonics: 3
+        limit_min: -1.6
+        limit_max: 0.0
+        w_offset: -0.5000
+        # 数组索引: [0不用, 1倍频, 2倍频]
+        w_x: [0.0, 0.3339, 0.1985]
+        w_y: [0.0, 0.3715, 0.0212]
+        
+      left_ankle:
+        num_harmonics: 2
+        limit_min: -0.5
+        limit_max: 0.5
+        w_offset: -0.0500
+        w_x: [0.0, 0.1061]
+        w_y: [0.0, 0.1061]
+
+      # 右腿可以填全0，因为目前的 C++ 代码在运行时如果发现全是 0，且 error=0，它就不会动。
+      # 但如果您希望右腿也动，请把左腿的参数完全复制给右腿即可（代码里的镜像逻辑会自动把右腿反相处理）
+      right_hip3:
+        num_harmonics: 2
+        limit_min: -0.8
+        limit_max: 0.8
+        w_offset: 0.1000
+        w_x: [0.0, -0.2972]
+        w_y: [0.0, 0.2671]
+        
+      right_knee:
+        num_harmonics: 3
+        limit_min: -1.6
+        limit_max: 0.0
+        w_offset: -0.5000
+        w_x: [0.0, 0.3339, 0.1985]
+        w_y: [0.0, 0.3715, 0.0212]
+        
+      right_ankle:
+        num_harmonics: 2
+        limit_min: -0.5
+        limit_max: 0.5
+        w_offset: -0.0500
+        w_x: [0.0, 0.1061]
+        w_y: [0.0, 0.1061]

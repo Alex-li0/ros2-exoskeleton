@@ -1,0 +1,22 @@
+# /home/lsy/vins_ws/src/vins_launch/config/vins_params.yaml
+
+# --- 节点开关 ---
+# 需要输入字符串
+ov_enable: 'true'
+rviz_enable: 'true'
+bag_enable: 'false'
+
+# --- 路径配置 ---
+bag_path: "/home/lsy/vins_ws/src/vins_launch/bags/V1_01_easy" # V1_01_easy V2_01_easy MH_03_medium
+# 如果想用默认安装路径的 rviz，这里可以留空，代码会自动处理
+rviz_config_path: "/home/lsy/vins_ws/src/vins_launch/rviz/display_ros2.rviz"
+
+# --- OpenVINS 参数 ---
+namespace: "ov_msckf"
+config: "d435i"  #euroc_mav  d435i
+#path to estimator_config.yaml. If not given, determined based on provided 'config' above
+config_path: ""  
+verbosity: "INFO"
+use_stereo: true
+max_cameras: 2
+save_total_state: false

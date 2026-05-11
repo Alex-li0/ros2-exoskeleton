@@ -1,0 +1,16 @@
+/elevation_mapping_node:
+  ros__parameters:
+    subscribers:
+      front_cam:
+        topic_name: '/camera/depth/color/points'
+        data_type: pointcloud
+
+    publishers:
+      elevation_map_raw:
+        layers: ['elevation', 'traversability', 'variance']
+        basic_layers: ['elevation']
+        fps: 15.0
+      elevation_map_filter:
+        layers: ['min_filter', 'smooth', 'inpaint', 'elevation']
+        basic_layers: ['min_filter']
+        fps: 10.0

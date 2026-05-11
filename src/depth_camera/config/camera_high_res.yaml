@@ -1,0 +1,93 @@
+/**:
+  ros__parameters:
+    # ===========================
+    # 1. 基础设备配置
+    # ===========================
+    device_type: 'd435i'
+    serial_no: ''
+    usb_port_id: ''
+    initial_reset: true
+    wait_for_device_timeout: 30.0
+
+    # ===========================
+    # 2. VINS-Fusion 专用通道
+    # ===========================
+    # VINS 依赖红外双目和高频 IMU
+    enable_infra1: true       # 左红外 (Global Shutter)
+    enable_infra2: true       # 右红外 (Global Shutter)
+    enable_gyro: true         
+    enable_accel: true        
+    global_time_enabled: true
+    # --- 关键修复: FPS 必须是整数 (Integer) ---
+    # D435i 最稳定的 IMU 频率是 Gyro 200Hz / Accel 100Hz 
+    # 填入不支持的 400/250 可能导致启动回退或报错
+    gyro_fps: 400             # [Fixed] integer
+    accel_fps: 400            # [Fixed] integer
+    
+    enable_sync: true         # 开启硬件时间同步
+    
+    # 
+    unite_imu_method: 2 
+
+    # 减少 IMU 积压，对 VINS 实时性更好
+    hold_back_imu_for_frames: true
+
+    # 图像分辨率
+    infra_width: 848
+    infra_height: 480
+    infra_fps: 30             # [Fixed] integer
+
+    # ===========================
+    # 3. 踏步规划/Elevation Mapping 专用配置
+    # ===========================
+    enable_depth: true
+    depth_module.emitter_enabled: 0
+    depth_width: 848
+    depth_height: 480
+    depth_fps: 30             # [Fixed] integer
+
+    # --- 开启点云发布 ---
+
+    # enable_pointcloud: true
+    # pointcloud_texture_stream: 'RS2_STREAM_ANY' 
+    # pointcloud_qos: 'SENSOR_DATA' 
+    # allow_no_texture_points: true 
+
+    align_depth.enable: false
+    pointcloud.enable: true
+    pointcloud.pointcloud_qos: 'SENSOR_DATA'
+    
+    # --- 后处理滤镜链 (Post-processing Filters) ---
+    filters: 'decimation,spatial,temporal'
+
+    # --- 滤镜详细参数微调 ---
+    
+    # [Decimation Filter] 降采样
+    filter.decimation.filter_magnitude: 2 
+
+    # [Spatial Filter] 空间边缘保留平滑
+    filter.spatial.filter_magnitude: 2
+    filter.spatial.filter_smooth_alpha: 0.5
+    filter.spatial.filter_smooth_delta: 20
+    filter.spatial.holes_fill: 0 
+
+    # [Temporal Filter] 时间滤波
+    filter.temporal.filter_smooth_alpha: 0.4
+    filter.temporal.filter_smooth_delta: 20
+
+    # ===========================
+    # 4. 距离裁切 (Clip)
+    # ===========================
+    clip_distance: 4.0 
+
+    # ===========================
+    # 5. 其他
+    # ===========================
+    enable_color: false
+    color_width: 640
+    color_height: 480
+    color_fps: 30
+    align_depth: true 
+
+    # 自动曝光策略
+    enable_auto_exposure: true
