@@ -1,0 +1,65 @@
+adaptive_cpg_node:
+  ros__parameters:
+    mu: 1.0
+    omega: 6.136740
+    gamma: 15.0
+    eta_w: 0.00      # 纯离线回放，学习率设为0
+    eta_omega: 0.00
+
+    # === 启停状态机参数 ===
+    ramp_time: 0.5              # 渐入/渐出时间 (秒)
+    initial_perturbation: 0.1   # 启动时振子扰动量
+
+    # === 踝关节开关 ===
+    # true: 仿真时输出 CPG 踝关节角度 (可视化)
+    # false: 实机时踝关节锁定 w_offset (被动关节不助力)
+    publish_ankle: true
+
+    joints:
+      left_hip3:
+        num_harmonics: 2
+        limit_min: -0.21
+        limit_max: 0.72
+        w_offset: 0.3266
+        w_x: [0.0000, 0.2804]
+        w_y: [0.0000, 0.2529]
+
+      left_knee:
+        num_harmonics: 3
+        limit_min: -1.25
+        limit_max: 0.09
+        w_offset: -0.4077
+        w_x: [0.0000, -0.2472, 0.0823]
+        w_y: [0.0000, 0.2690, 0.3158]
+
+      left_ankle:
+        num_harmonics: 4
+        limit_min: -0.29
+        limit_max: 0.29
+        w_offset: 0.0962
+        w_x: [0.0000, -0.1048, 0.1003, 0.0549]
+        w_y: [0.0000, 0.0959, 0.0535, -0.0252]
+
+      right_hip3:
+        num_harmonics: 2
+        limit_min: -0.21
+        limit_max: 0.72
+        w_offset: 0.3266
+        w_x: [0.0000, 0.2804]
+        w_y: [0.0000, 0.2529]
+
+      right_knee:
+        num_harmonics: 3
+        limit_min: -1.25
+        limit_max: 0.09
+        w_offset: -0.4077
+        w_x: [0.0000, -0.2472, 0.0823]
+        w_y: [0.0000, 0.2690, 0.3158]
+
+      right_ankle:
+        num_harmonics: 4
+        limit_min: -0.29
+        limit_max: 0.29
+        w_offset: 0.0962
+        w_x: [0.0000, -0.1048, 0.1003, 0.0549]
+        w_y: [0.0000, 0.0959, 0.0535, -0.0252]
