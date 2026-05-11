@@ -8,6 +8,7 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 
@@ -15,7 +16,7 @@ add_executable(single_leg_cpg src/single_leg_cpg.cpp)
 ament_target_dependencies(single_leg_cpg rclcpp sensor_msgs)
 
 add_executable(legs_cpg src/legs_cpg.cpp)
-ament_target_dependencies(legs_cpg rclcpp sensor_msgs tf2_ros )
+ament_target_dependencies(legs_cpg rclcpp std_msgs sensor_msgs tf2_ros)
 
 
 if(BUILD_TESTING)
