@@ -17,49 +17,49 @@ adaptive_cpg_node:
 
     joints:
       left_hip3:
-        num_harmonics: 2
-        limit_min: -0.16
-        limit_max: 0.68
-        w_offset: 0.2311
-        w_x: [0.0000, 0.2869]
-        w_y: [0.0000, 0.1201]
+        num_harmonics: 4
+        limit_min: -0.3945
+        limit_max: 0.4455
+        w_offset: 0.0000
+        w_x: [0.0000, 0.2869, 0.0856, -0.0028]
+        w_y: [0.0000, 0.1201, -0.0270, -0.0128]
 
       left_knee:
-        num_harmonics: 3
-        limit_min: -1.24
-        limit_max: 0.16
-        w_offset: -0.3070
-        w_x: [0.0000, -0.4321, -0.0974]
-        w_y: [0.0000, 0.3156, 0.2237]
+        num_harmonics: 4
+        limit_min: -1.3
+        limit_max: 0.1
+        w_offset: -0.3673
+        w_x: [0.0000, -0.4321, -0.0974, -0.0048]
+        w_y: [0.0000, 0.3156, 0.2237, 0.0517]
 
       left_ankle:
         num_harmonics: 4
-        limit_min: -0.23
-        limit_max: 0.21
-        w_offset: 0.0427
+        limit_min: -0.33
+        limit_max: 0.12
+        w_offset: -0.0524
         w_x: [0.0000, -0.0695, 0.0473, 0.0536]
         w_y: [0.0000, 0.0221, 0.0857, 0.0334]
 
       right_hip3:
-        num_harmonics: 2
-        limit_min: -0.16
-        limit_max: 0.68
-        w_offset: 0.2311
-        w_x: [0.0000, 0.2869]
-        w_y: [0.0000, 0.1201]
+        num_harmonics: 4
+        limit_min: -0.4116
+        limit_max: 0.4184
+        w_offset: 0.0000
+        w_x: [0.0000, -0.2782, 0.0644, 0.0030]
+        w_y: [0.0000, -0.1341, -0.0463, 0.0180]
 
       right_knee:
-        num_harmonics: 3
-        limit_min: -1.24
-        limit_max: 0.16
-        w_offset: -0.3070
-        w_x: [0.0000, -0.4321, -0.0974]
-        w_y: [0.0000, 0.3156, 0.2237]
+        num_harmonics: 4
+        limit_min: -1.01
+        limit_max: 0.02
+        w_offset: -0.3215
+        w_x: [0.0000, 0.2619, -0.0434, -0.0039]
+        w_y: [0.0000, -0.2222, 0.1945, -0.0559]
 
       right_ankle:
         num_harmonics: 4
         limit_min: -0.23
-        limit_max: 0.21
-        w_offset: 0.0427
-        w_x: [0.0000, -0.0695, 0.0473, 0.0536]
-        w_y: [0.0000, 0.0221, 0.0857, 0.0334]
+        limit_max: 0.13
+        w_offset: 0.0090
+        w_x: [0.0000, 0.0653, 0.0696, -0.0495]
+        w_y: [0.0000, -0.0386, 0.0357, -0.0000]

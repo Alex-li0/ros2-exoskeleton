@@ -1,7 +1,6 @@
 adaptive_cpg_node:
   ros__parameters:
     mu: 1.0
-    omega: 5.720866
     gamma: 15.0
     eta_w: 0.00      # 纯离线回放，学习率设为0
     eta_omega: 0.00
@@ -15,51 +14,112 @@ adaptive_cpg_node:
     # false: 实机时踝关节锁定 w_offset (被动关节不助力)
     publish_ankle: true
 
-    joints:
-      left_hip3:
-        num_harmonics: 2
-        limit_min: -0.13
-        limit_max: 0.49
-        w_offset: 0.1759
-        w_x: [0.0000, 0.2142]
-        w_y: [0.0000, 0.1125]
+    # === Gait Library ===
+    # default_gait: 启动时加载的 gait mode
+    # 通过 /terrain/gait_mode 话题切换
+    default_gait: flat_walk
 
-      left_knee:
-        num_harmonics: 3
-        limit_min: -0.99
-        limit_max: 0.13
-        w_offset: -0.3062
-        w_x: [0.0000, -0.3893, -0.0878]
-        w_y: [0.0000, 0.1008, 0.1350]
+    gait_modes: [flat_walk, slope_up]   # 可用 mode 列表
 
-      left_ankle:
-        num_harmonics: 4
-        limit_min: 0.07
-        limit_max: 0.23
-        w_offset: 0.1473
-        w_x: [0.0000, -0.0181, -0.0075, 0.0141]
-        w_y: [0.0000, -0.0120, 0.0319, 0.0210]
+    gait_library:
+      flat_walk:
+        omega: 5.720866
+        joints:
+          left_hip3:
+            num_harmonics: 3
+            limit_min: -0.3032
+            limit_max: 0.3168
+            w_offset: 0.0000
+            w_x: [0.0000, 0.2142, 0.0449]
+            w_y: [0.0000, 0.1125, -0.0209]
 
-      right_hip3:
-        num_harmonics: 2
-        limit_min: -0.13
-        limit_max: 0.49
-        w_offset: 0.1759
-        w_x: [0.0000, 0.2142]
-        w_y: [0.0000, 0.1125]
+          left_knee:
+            num_harmonics: 3
+            limit_min: -1.03
+            limit_max: 0.08
+            w_offset: -0.3536
+            w_x: [0.0000, -0.3893, -0.0878]
+            w_y: [0.0000, 0.1008, 0.1350]
 
-      right_knee:
-        num_harmonics: 3
-        limit_min: -0.99
-        limit_max: 0.13
-        w_offset: -0.3062
-        w_x: [0.0000, -0.3893, -0.0878]
-        w_y: [0.0000, 0.1008, 0.1350]
+          left_ankle:
+            num_harmonics: 4
+            limit_min: -0.05
+            limit_max: 0.11
+            w_offset: 0.0271
+            w_x: [0.0000, -0.0181, -0.0075, 0.0141]
+            w_y: [0.0000, -0.0120, 0.0319, 0.0210]
 
-      right_ankle:
-        num_harmonics: 4
-        limit_min: 0.07
-        limit_max: 0.23
-        w_offset: 0.1473
-        w_x: [0.0000, -0.0181, -0.0075, 0.0141]
-        w_y: [0.0000, -0.0120, 0.0319, 0.0210]
+          right_hip3:
+            num_harmonics: 3
+            limit_min: -0.2943
+            limit_max: 0.3057
+            w_offset: 0.0000
+            w_x: [0.0000, -0.2082, 0.0373]
+            w_y: [0.0000, -0.1168, -0.0189]
+
+          right_knee:
+            num_harmonics: 3
+            limit_min: -0.59
+            limit_max: 0.1
+            w_offset: -0.1481
+            w_x: [0.0000, 0.2194, -0.0482]
+            w_y: [0.0000, -0.0826, 0.1020]
+
+          right_ankle:
+            num_harmonics: 4
+            limit_min: 0.04
+            limit_max: 0.17
+            w_offset: 0.1121
+            w_x: [0.0000, 0.0185, 0.0143, -0.0192]
+            w_y: [0.0000, 0.0276, -0.0028, -0.0085]
+
+      slope_up:
+        omega: 5.874750         # 占位，待数据拟合后替换
+        joints:
+          left_hip3:
+            num_harmonics: 4
+            limit_min: -0.3945
+            limit_max: 0.4455
+            w_offset: 0.0000
+            w_x: [0.0000, 0.2869, 0.0856, -0.0028]
+            w_y: [0.0000, 0.1201, -0.0270, -0.0128]
+
+          left_knee:
+            num_harmonics: 4
+            limit_min: -1.3
+            limit_max: 0.1
+            w_offset: -0.3673
+            w_x: [0.0000, -0.4321, -0.0974, -0.0048]
+            w_y: [0.0000, 0.3156, 0.2237, 0.0517]
+
+          left_ankle:
+            num_harmonics: 4
+            limit_min: -0.33
+            limit_max: 0.12
+            w_offset: -0.0524
+            w_x: [0.0000, -0.0695, 0.0473, 0.0536]
+            w_y: [0.0000, 0.0221, 0.0857, 0.0334]
+
+          right_hip3:
+            num_harmonics: 4
+            limit_min: -0.4116
+            limit_max: 0.4184
+            w_offset: 0.0000
+            w_x: [0.0000, -0.2782, 0.0644, 0.0030]
+            w_y: [0.0000, -0.1341, -0.0463, 0.0180]
+
+          right_knee:
+            num_harmonics: 4
+            limit_min: -1.01
+            limit_max: 0.02
+            w_offset: -0.3215
+            w_x: [0.0000, 0.2619, -0.0434, -0.0039]
+            w_y: [0.0000, -0.2222, 0.1945, -0.0559]
+
+          right_ankle:
+            num_harmonics: 4
+            limit_min: -0.23
+            limit_max: 0.13
+            w_offset: 0.0090
+            w_x: [0.0000, 0.0653, 0.0696, -0.0495]
+            w_y: [0.0000, -0.0386, 0.0357, -0.0000]

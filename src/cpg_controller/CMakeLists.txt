@@ -37,7 +37,7 @@ install(TARGETS
 )
 
 install(PROGRAMS
-  scripts/cpg_optimizer.py
+  scripts/cpg_optimizer/cpg_optimizer.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
