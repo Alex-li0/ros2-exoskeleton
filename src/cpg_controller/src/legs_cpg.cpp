@@ -43,6 +43,8 @@ struct JointWeightSnapshot
     double w_offset;
     std::vector<double> w_x;
     std::vector<double> w_y;
+    double limit_min;
+    double limit_max;
 };
 
 // ==================== Gait Mode ====================
@@ -138,11 +140,14 @@ public:
             "/position_controller/commands", 10);
         joint_state_pub_ = this->create_publisher<sensor_msgs::msg::JointState>(
             "/joint_states", 10);
+        cpg_ref_pub_ = this->create_publisher<sensor_msgs::msg::JointState>(
+            "/cpg/joint_ref", 10);
 
         state_cmd_sub_ = this->create_subscription<std_msgs::msg::String>(
             "/cpg/state_cmd", 10,
             std::bind(&AdaptiveCPGNode::state_cmd_callback, this, std::placeholders::_1));
         state_pub_ = this->create_publisher<std_msgs::msg::String>("/cpg/state", 10);
+        switch_debug_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/cpg/switch_debug", 10);
 
         gait_mode_cmd_sub_ = this->create_subscription<std_msgs::msg::String>(
             "/cpg/gait_mode_cmd", 10,
@@ -207,20 +212,32 @@ private:
             }
             cpg_pub_->publish(cmd_msg);
             joint_state_pub_->publish(js_msg);
+
+            // IDLE 时也发布 /cpg/joint_ref（position=0, velocity=0）
+            auto ref_msg = sensor_msgs::msg::JointState();
+            ref_msg.header.stamp = now;
+            for (const auto &name : joint_names_)
+            {
+                ref_msg.name.push_back(name);
+                ref_msg.position.push_back(0.0);
+                ref_msg.velocity.push_back(0.0);
+            }
+            cpg_ref_pub_->publish(ref_msg);
             return;
         }
 
-        // --- 3. 振荡器自由运行 ---
+        // --- 3. 计算切换进度 & 插值 omega（必须在积分之前） ---
+        double switch_alpha = 1.0;
+        double omega_current = omega_;
+        if (cpg_state_ == CPGState::SWITCHING)
+        {
+            switch_alpha = compute_switch_progress();
+            omega_current = (1.0 - switch_alpha) * switch_old_omega_ + switch_alpha * switch_new_omega_;
+        }
+
+        // --- 4. 振荡器自由运行 ---
         // 使用子步长积分 (与 optimizer 的 sample_cpg_one_cycle 完全一致)
         {
-            // 计算当前使用的 omega（切换过程中使用插值 omega）
-            double omega_current = omega_;
-            if (cpg_state_ == CPGState::SWITCHING)
-            {
-                double alpha = compute_switch_progress();
-                omega_current = (1.0 - alpha) * switch_old_omega_ + alpha * switch_new_omega_;
-            }
-
             int sub_steps = 10;
             double dt_sim = dt / sub_steps;
             for (int s = 0; s < sub_steps; ++s)
@@ -233,10 +250,34 @@ private:
             }
         }
 
-        // --- 4. 计算振幅因子 A(t) ---
-        amplitude_factor_ = compute_amplitude_factor();
+        // --- 5. 计算谐波时间导数（用于关节速度输出） ---
+        {
+            double r2_final = x_ * x_ + y_ * y_;
+            double dx_final = gamma_ * (mu_ - r2_final) * x_ - omega_current * y_;
+            double dy_final = gamma_ * (mu_ - r2_final) * y_ + omega_current * x_;
 
-        // --- 5. 状态转换检测 ---
+            dhx_[1] = dx_final;
+            dhy_[1] = dy_final;
+
+            if (max_h_ >= 2)
+            {
+                dhx_[2] = 2.0 * (x_ * dx_final - y_ * dy_final);
+                dhy_[2] = 2.0 * (dx_final * y_ + x_ * dy_final);
+            }
+
+            if (max_h_ >= 3)
+            {
+                double x2_y2 = x_ * x_ - y_ * y_;
+                dhx_[3] = 3.0 * dx_final * x2_y2 - 6.0 * x_ * y_ * dy_final;
+                dhy_[3] = 6.0 * x_ * y_ * dx_final + 3.0 * dy_final * x2_y2;
+            }
+        }
+
+        // --- 6. 计算振幅因子 A(t) 和其导数 dA/dt ---
+        amplitude_factor_ = compute_amplitude_factor();
+        double d_amplitude_dt = compute_d_amplitude_dt(dt);
+
+        // --- 6. 状态转换检测 ---
         if (cpg_state_ == CPGState::STARTING && amplitude_factor_ >= 0.999)
         {
             amplitude_factor_ = 1.0;
@@ -258,7 +299,7 @@ private:
             RCLCPP_INFO(this->get_logger(), "CPG 已完全停止，进入 IDLE 状态");
         }
 
-        // --- 6. 高阶谐波生成 ---
+        // --- 7. 高阶谐波生成 ---
         hx_[1] = x_;
         hy_[1] = y_;
 
@@ -274,78 +315,105 @@ private:
             hy_[3] = y_ * (3.0 * x_ * x_ - y_ * y_);
         }
 
-        // --- 7. 计算切换过渡进度 ---
-        double switch_alpha = 1.0;
-        if (cpg_state_ == CPGState::SWITCHING)
+        // --- 8. 切换完成检测（switch_alpha 已在 step 3 计算） ---
+        if (cpg_state_ == CPGState::SWITCHING && switch_alpha >= 1.0)
         {
-            switch_alpha = compute_switch_progress();
+            current_gait_name_ = switch_target_gait_;
+            current_gait_ = switch_target_gait_ptr_;
+            omega_ = switch_new_omega_;
 
-            if (switch_alpha >= 0.999)
-            {
-                current_gait_name_ = switch_target_gait_;
-                current_gait_ = switch_target_gait_ptr_;
-                omega_ = switch_new_omega_;  // 更新 omega
+            auto out = std_msgs::msg::String();
+            out.data = current_gait_name_;
+            gait_mode_pub_->publish(out);
 
-                auto out = std_msgs::msg::String();
-                out.data = current_gait_name_;
-                gait_mode_pub_->publish(out);
+            cpg_state_ = CPGState::WALKING;
+            publish_state("WALKING");
 
-                cpg_state_ = CPGState::WALKING;
-                publish_state("WALKING");
-                switch_alpha = 1.0;
+            // 切换完成，重新启动参数更新定时器
+            activate_param_timer();
 
-                // 切换完成，重新启动参数更新定时器
-                activate_param_timer();
-
-                RCLCPP_INFO(this->get_logger(), "Gait mode 平滑过渡完成: '%s' (omega=%.3f)",
-                            current_gait_name_.c_str(), omega_);
-            }
+            RCLCPP_INFO(this->get_logger(), "Gait mode 平滑过渡完成: '%s' (omega=%.3f)",
+                        current_gait_name_.c_str(), omega_);
         }
 
-        // --- 8. 遍历关节：计算输出 ---
+        // --- 9. 遍历关节：计算输出 ---
         auto cmd_msg = std_msgs::msg::Float64MultiArray();
         auto js_msg = sensor_msgs::msg::JointState();
         js_msg.header.stamp = now;
+        auto debug_msg = std_msgs::msg::Float64MultiArray();
+        debug_msg.data.push_back(switch_alpha);   // [0]
+        debug_msg.data.push_back(omega_current);   // [1]
+
+        // 先收集每个关节的插值权重和输出
+        std::vector<double> dbg_w_off, dbg_wx1, dbg_wx2, dbg_wx3;
+        std::vector<double> dbg_wy1, dbg_wy2, dbg_wy3;
+        std::vector<double> dbg_theta, dbg_output;
+        std::vector<double> joint_velocities;  // 每个关节的速度
 
         for (const auto &name : joint_names_)
         {
             auto &m = current_gait_->joints[name];
 
-            // 使用插值权重计算输出
-            double theta_interp;
+            // 插值权重
+            double w_off_cur = m.w_offset;
+            double wx1 = 0.0, wx2 = 0.0, wx3 = 0.0;
+            double wy1 = 0.0, wy2 = 0.0, wy3 = 0.0;
 
-            if (cpg_state_ == CPGState::SWITCHING && switch_alpha < 1.0 && switch_old_weights_.count(name))
+            if (cpg_state_ == CPGState::SWITCHING && switch_old_weights_.count(name))
             {
                 auto &old_w = switch_old_weights_[name];
                 auto &new_w = switch_new_weights_[name];
+                double a = switch_alpha;
 
-                double w_offset_interp = (1.0 - switch_alpha) * old_w.w_offset + switch_alpha * new_w.w_offset;
+                auto interp = [&](const std::vector<double> &ov, const std::vector<double> &nv, int i) -> double {
+                    double o = (i < (int)ov.size()) ? ov[i] : 0.0;
+                    double n = (i < (int)nv.size()) ? nv[i] : 0.0;
+                    return (1.0 - a) * o + a * n;
+                };
 
-                int max_n = std::max({(int)old_w.w_x.size(), (int)new_w.w_x.size(), m.num_harmonics});
-                theta_interp = w_offset_interp;
-                for (int i = 1; i < std::min(max_n, (int)hx_.size()); ++i)
-                {
-                    double old_x = (i < (int)old_w.w_x.size()) ? old_w.w_x[i] : 0.0;
-                    double new_x = (i < (int)new_w.w_x.size()) ? new_w.w_x[i] : 0.0;
-                    double old_y = (i < (int)old_w.w_y.size()) ? old_w.w_y[i] : 0.0;
-                    double new_y = (i < (int)new_w.w_y.size()) ? new_w.w_y[i] : 0.0;
-                    double wx = (1.0 - switch_alpha) * old_x + switch_alpha * new_x;
-                    double wy = (1.0 - switch_alpha) * old_y + switch_alpha * new_y;
-                    theta_interp += wx * hx_[i] + wy * hy_[i];
-                }
+                w_off_cur = (1.0 - a) * old_w.w_offset + a * new_w.w_offset;
+                wx1 = interp(old_w.w_x, new_w.w_x, 1);
+                wx2 = interp(old_w.w_x, new_w.w_x, 2);
+                wx3 = interp(old_w.w_x, new_w.w_x, 3);
+                wy1 = interp(old_w.w_y, new_w.w_y, 1);
+                wy2 = interp(old_w.w_y, new_w.w_y, 2);
+                wy3 = interp(old_w.w_y, new_w.w_y, 3);
             }
             else
             {
-                theta_interp = m.w_offset;
-                for (int i = 1; i < m.num_harmonics; ++i)
-                {
-                    theta_interp += m.w_x[i] * hx_[i] + m.w_y[i] * hy_[i];
-                }
+                if (1 < (int)m.w_x.size()) { wx1 = m.w_x[1]; }
+                if (2 < (int)m.w_x.size()) { wx2 = m.w_x[2]; }
+                if (3 < (int)m.w_x.size()) { wx3 = m.w_x[3]; }
+                if (1 < (int)m.w_y.size()) { wy1 = m.w_y[1]; }
+                if (2 < (int)m.w_y.size()) { wy2 = m.w_y[2]; }
+                if (3 < (int)m.w_y.size()) { wy3 = m.w_y[3]; }
             }
+
+            // 计算 theta（clamp 前）
+            double theta_interp = w_off_cur;
+            theta_interp += wx1 * hx_[1] + wy1 * hy_[1];
+            theta_interp += wx2 * hx_[2] + wy2 * hy_[2];
+            theta_interp += wx3 * hx_[3] + wy3 * hy_[3];
 
             // 振幅调制
             double output = amplitude_factor_ * theta_interp;
-            output = std::clamp(output, m.limit_min, m.limit_max);
+
+            // 计算关节速度: d(A*theta)/dt = A * dtheta/dt + theta * dA/dt
+            double dtheta = wx1 * dhx_[1] + wy1 * dhy_[1];
+            if (max_h_ >= 2) dtheta += wx2 * dhx_[2] + wy2 * dhy_[2];
+            if (max_h_ >= 3) dtheta += wx3 * dhx_[3] + wy3 * dhy_[3];
+            double velocity = amplitude_factor_ * dtheta + d_amplitude_dt * theta_interp;
+            joint_velocities.push_back(velocity);
+
+            // 限位
+            double lim_min = m.limit_min;
+            double lim_max = m.limit_max;
+            if (cpg_state_ == CPGState::SWITCHING && switch_old_weights_.count(name))
+            {
+                lim_min = std::min(switch_old_weights_[name].limit_min, switch_new_weights_[name].limit_min);
+                lim_max = std::max(switch_old_weights_[name].limit_max, switch_new_weights_[name].limit_max);
+            }
+            output = std::clamp(output, lim_min, lim_max);
 
             bool is_ankle = (name.find("ankle") != std::string::npos);
             double cmd_output = output;
@@ -355,7 +423,28 @@ private:
             cmd_msg.data.push_back(cmd_output);
             js_msg.name.push_back(name);
             js_msg.position.push_back(output);
+
+            dbg_w_off.push_back(w_off_cur);
+            dbg_wx1.push_back(wx1); dbg_wx2.push_back(wx2); dbg_wx3.push_back(wx3);
+            dbg_wy1.push_back(wy1); dbg_wy2.push_back(wy2); dbg_wy3.push_back(wy3);
+            dbg_theta.push_back(theta_interp);
+            dbg_output.push_back(output);
         }
+
+        // debug layout: [2+j*7+0]=w_off, [+1]=wx1, [+2]=wx2, [+3]=wx3,
+        //               [+4]=wy1, [+5]=wy2, [+6]=wy3, [2+42+j]=theta, [2+48+j]=output
+        for (size_t j = 0; j < joint_names_.size(); ++j)
+        {
+            debug_msg.data.push_back(dbg_w_off[j]);
+            debug_msg.data.push_back(dbg_wx1[j]);
+            debug_msg.data.push_back(dbg_wx2[j]);
+            debug_msg.data.push_back(dbg_wx3[j]);
+            debug_msg.data.push_back(dbg_wy1[j]);
+            debug_msg.data.push_back(dbg_wy2[j]);
+            debug_msg.data.push_back(dbg_wy3[j]);
+        }
+        for (auto v : dbg_theta)  debug_msg.data.push_back(v);
+        for (auto v : dbg_output) debug_msg.data.push_back(v);
 
         for (const auto &static_name : static_joint_names_)
         {
@@ -365,6 +454,18 @@ private:
 
         cpg_pub_->publish(cmd_msg);
         joint_state_pub_->publish(js_msg);
+        switch_debug_pub_->publish(debug_msg);
+
+        // 发布 /cpg/joint_ref（含位置和速度，供阻抗控制器使用）
+        auto ref_msg = sensor_msgs::msg::JointState();
+        ref_msg.header.stamp = now;
+        for (size_t i = 0; i < joint_names_.size(); ++i)
+        {
+            ref_msg.name.push_back(joint_names_[i]);
+            ref_msg.position.push_back(cmd_msg.data[i]);
+            ref_msg.velocity.push_back(joint_velocities[i]);
+        }
+        cpg_ref_pub_->publish(ref_msg);
     }
 
     // ==================== 参数更新定时器回调 (100Hz) ====================
@@ -520,6 +621,8 @@ private:
                 old_snap.w_offset = old_m.w_offset;
                 old_snap.w_x = old_m.w_x;
                 old_snap.w_y = old_m.w_y;
+                old_snap.limit_min = old_m.limit_min;
+                old_snap.limit_max = old_m.limit_max;
                 switch_old_weights_[name] = old_snap;
 
                 // 新权重（目标 gait mode）
@@ -528,6 +631,8 @@ private:
                 new_snap.w_offset = new_m.w_offset;
                 new_snap.w_x = new_m.w_x;
                 new_snap.w_y = new_m.w_y;
+                new_snap.limit_min = new_m.limit_min;
+                new_snap.limit_max = new_m.limit_max;
                 switch_new_weights_[name] = new_snap;
             }
 
@@ -597,6 +702,43 @@ private:
         }
     }
 
+    // ==================== 振幅因子导数 dA/dt ====================
+    double compute_d_amplitude_dt(double /*dt*/)
+    {
+        double elapsed = (this->now() - ramp_start_time_).seconds();
+        double T = ramp_time_;
+        if (T < 0.01) T = 0.01;
+
+        switch (cpg_state_)
+        {
+        case CPGState::IDLE:
+            return 0.0;
+
+        case CPGState::STARTING:
+        {
+            double t = std::clamp(elapsed / T, 0.0, 1.0);
+            // dA/dt = 0.5 * (π/T) * sin(π*t/T)
+            return 0.5 * (M_PI / T) * std::sin(M_PI * t);
+        }
+
+        case CPGState::WALKING:
+            return 0.0;
+
+        case CPGState::STOPPING:
+        {
+            double t = std::clamp(elapsed / T, 0.0, 1.0);
+            // dA/dt = -stop_start * 0.5 * (π/T) * sin(π*t/T)
+            return -stop_start_amplitude_ * 0.5 * (M_PI / T) * std::sin(M_PI * t);
+        }
+
+        case CPGState::SWITCHING:
+            return 0.0;
+
+        default:
+            return 0.0;
+        }
+    }
+
     // ==================== 计算切换过渡进度 ====================
     // 返回 0.0 ~ 1.0 的平滑过渡因子
     // 使用五次多项式 6t^5 - 15t^4 + 10t^3，C2 连续（位置、速度、加速度都连续）
@@ -618,7 +760,7 @@ private:
     }
 
     // ==================== 从 TF 获取目标角度 ====================
-    double get_target_from_tf(const std::string &joint_name, double current_cpg)
+    double get_target_from_tf(const std::string & /*joint_name*/, double current_cpg)
     {
         try
         {
@@ -655,6 +797,7 @@ private:
 
     // 谐波特征（成员变量，供切换过渡时使用）
     std::vector<double> hx_{5, 0.0}, hy_{5, 0.0};
+    std::vector<double> dhx_{5, 0.0}, dhy_{5, 0.0};  // 谐波时间导数
 
     // 启停状态机
     CPGState cpg_state_;
@@ -690,9 +833,11 @@ private:
     bool param_timer_active_;                     // 参数更新定时器是否激活
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr cpg_pub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr cpg_ref_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr state_cmd_sub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr gait_mode_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr switch_debug_pub_;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr gait_mode_cmd_sub_;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;

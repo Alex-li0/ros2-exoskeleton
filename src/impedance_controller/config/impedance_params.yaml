@@ -1,0 +1,38 @@
+impedance_controller_node:
+  ros__parameters:
+    # 关节名称（必须与 CPG 一致）
+    joint_names:
+      - left_hip3
+      - left_knee
+      - left_ankle
+      - right_hip3
+      - right_knee
+      - right_ankle
+
+    # 刚度增益 K [N*m/rad]（初始保守值，上机后调）
+    K: [50.0, 80.0, 30.0, 50.0, 80.0, 30.0]
+
+    # 阻尼增益 D [N*m*s/rad]
+    # 临界阻尼: D = 2 * sqrt(K * J_eff)，J_eff ~ 0.1 kg*m^2
+    D: [5.0, 8.0, 3.0, 5.0, 8.0, 3.0]
+
+    # 每关节力矩上限 [N*m]
+    torque_limit: [20.0, 30.0, 15.0, 20.0, 30.0, 15.0]
+
+    # 力矩变化率上限 [N*m/s]（500Hz 时每步最大变化 = rate/500）
+    torque_rate_limit: [100.0, 150.0, 80.0, 100.0, 150.0, 80.0]
+
+    # 硬件反馈话题名
+    feedback_topic: "/joint_states/hardware"
+
+    # 仿真模式：用 CPG 参考当反馈（输出零力矩，验证消息流）
+    use_mock_feedback: true
+
+    # 控制频率 [Hz]
+    control_frequency: 500.0
+
+    # 速度低通滤波系数（0~1，1=不过滤）
+    velocity_filter_alpha: 0.2
+
+    # 数据超时阈值 [s]
+    data_timeout: 0.01
