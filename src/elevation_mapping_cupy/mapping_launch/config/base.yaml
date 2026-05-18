@@ -7,7 +7,7 @@
 
     publishers:
       elevation_map_raw:
-        layers: ['elevation', 'traversability', 'variance']
+        layers: ['elevation', 'traversability', 'variance', 'normal_x', 'normal_y', 'normal_z']
         basic_layers: ['elevation']
         fps: 15.0
       elevation_map_filter:

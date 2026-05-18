@@ -4,9 +4,9 @@
     drift_compensation_variance_inlier: 0.1   # 漂移补偿的方差内点阈值
     checker_layer: 'elevation'                # 用于检查网格单元有效性的图层名称
     initialized_variance: 10.0                # 每个单元格的初始方差值
-    resolution: 0.05                          # 地图分辨率 (单位：米)，建议设为 0.05 (5cm) 以获得更精细的地形
+    resolution: 0.02                          # 地图分辨率 (单位：米)，建议设为 0.05 (5cm) 以获得更精细的地形
     map_length: 5.0                           # 局部地图的总边长 (单位：米)，外骨骼建议 4.0 ~ 6.0
-    sensor_noise_factor: 0.05                 # 传感器噪声因子，点云噪声 ~ 该因子 * 距离的平方
+    sensor_noise_factor: 0.001                 # 传感器噪声因子，点云噪声 ~ 该因子 * 距离的平方
     mahalanobis_thresh: 2.0                   # 马氏距离阈值，超过此距离的点被视为离群值
     outlier_variance: 0.01                    # 如果判定为离群值，为该单元格增加的方差值
     max_drift: 0.1                            # 漂移补偿触发的最大允许漂移量 (安全保护机制)
