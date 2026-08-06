@@ -47,3 +47,9 @@ src/vins_launch/bags/
 
 # Documentation build
 docs/build/
+
+# 构建/输出产物
+compile_commands.json
+control_monitor_*.png
+control_monitor_stats.txt
+.mimocode/

@@ -1,0 +1,12 @@
+<library path="exoskeleton_controllers">
+  <class name="exoskeleton_controllers/ExoImpedanceController"
+         type="exoskeleton_controllers::ExoImpedanceController"
+         base_class_type="controller_interface::ChainableControllerInterface">
+    <description>
+      Chainable impedance controller for 6-DOF bipedal exoskeleton.
+      Computes tau = Kp*(q_ref - q) + Kd*(qdot_ref - qdot) + tau_ff.
+      Exports per-joint reference interfaces: target_position, target_velocity,
+      feedforward_torque, kp, kd. Supports chained mode for NMPC/RL integration.
+    </description>
+  </class>
+</library>

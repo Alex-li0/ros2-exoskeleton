@@ -1,0 +1,36 @@
+# ======================================================================
+# 阻抗控制器参数 (用于手动 ros2 control load_controller 时的参数文件)
+# 正常使用请直接编辑 exoskeleton_hardware/config/exo_controllers.yaml
+# (exo_tune.launch.py / exo_bringup.launch.py 读取的就是那个文件)
+# ======================================================================
+
+exo_impedance_controller:
+  ros__parameters:
+    # 控制的关节 (顺序对应 default_kp/kd/torque_limit 等数组, 下标一一对应)
+    joints:
+      - left_hip3    # 索引 0
+      - left_knee    # 索引 1 ← motor2 (当前唯一接的真实电机)
+      - right_hip3   # 索引 2
+      - right_knee   # 索引 3
+
+    # 控制律: τ = Kp*(q_ref - q) + Kd*(q̇_ref - q̇) + τ_ff
+    # 刚度 Kp [iq/rad]: 越大误差越小, 过大则振荡 (实测 knee=120 会欠阻尼振荡)
+    default_kp: [60.0, 80.0, 60.0, 80.0]
+
+    # 阻尼 Kd [iq*s/rad]: 抑制振荡; 越大越稳但跟踪变钝
+    default_kd: [12.0, 16.0, 12.0, 16.0]
+
+    # 力矩上限 [iq]: 命令力矩限幅 (硬件电流上限 100, 电机典型 ±30)
+    torque_limit: [80.0, 80.0, 80.0, 80.0]
+
+    # 力矩变化率上限 [iq/s]: 限制力矩变化快慢, 防止冲击
+    torque_rate_limit: [800.0, 800.0, 800.0, 800.0]
+
+    # 速度低通滤波系数 (0~1, 1=不过滤)
+    velocity_filter_alpha: 0.5
+
+    # 参考缩放 (0~1): 调试时降低跟踪幅值避免力矩饱和
+    ref_scale: 1.0
+
+    # 参考数据超时 [s]: 超时输出零力矩 (安全)
+    data_timeout: 0.01

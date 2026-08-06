@@ -1,0 +1,10 @@
+<library path="exoskeleton_hardware">
+  <class name="exoskeleton_hardware/ExoHardwareInterface"
+         type="exoskeleton_hardware::ExoHardwareInterface"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Exoskeleton hardware interface: 6-DOF lower-limb joints (left_hip3, left_knee, left_ankle,
+      right_hip3, right_knee, right_ankle) via STM32 serial protocol with onboard IMU.
+    </description>
+  </class>
+</library>

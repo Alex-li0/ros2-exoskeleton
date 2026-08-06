@@ -1,0 +1,65 @@
+# ======================================================================
+# 外骨骼 ros2_control 控制器配置
+# 修改此文件后无需重新编译, 重启 launch 即生效 (launch 直接读 src 路径)
+#
+# 用法:
+#   ros2 launch exoskeleton_hardware exo_tune.launch.py
+#   # 步态: ros2 topic pub /cpg/state_cmd std_msgs/msg/String "data: start" --once
+# ======================================================================
+
+controller_manager:
+  ros__parameters:
+    # 控制频率 [Hz]: 上位机每个周期向下位机(STM32)发送一次力矩指令
+    # 500Hz = 每周期 2ms。STM32 每电机 1kHz 控制率, 500Hz 完全支持。
+    update_rate: 500
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    exo_impedance_controller:
+      type: exoskeleton_controllers/ExoImpedanceController
+
+# ---------------- joint_state_broadcaster 参数 ----------------
+joint_state_broadcaster:
+  ros__parameters:
+    # 发布哪些关节的状态 (来自硬件接口, 即真实电机编码器)
+    joints:
+      - left_hip3
+      - left_knee
+      - right_hip3
+      - right_knee
+
+# ---------------- 阻抗控制器参数 ----------------
+exo_impedance_controller:
+  ros__parameters:
+    # 控制的关节 (顺序对应 default_kp/kd/torque_limit 等数组, 下标一一对应)
+    joints:
+      - left_hip3    # 索引 0
+      - left_knee    # 索引 1 ← motor2 (当前唯一接的真实电机)
+      - right_hip3   # 索引 2
+      - right_knee   # 索引 3
+
+    # 控制律: τ = Kp*(q_ref - q) + Kd*(q̇_ref - q̇) + τ_ff
+    # 刚度 Kp [iq/rad]: 越大误差越小, 过大则振荡 (实测 knee=120 会欠阻尼振荡)
+    # 顺序: [left_hip3, left_knee, right_hip3, right_knee]
+    default_kp: [60.0, 80.0, 60.0, 80.0]
+
+    # 阻尼 Kd [iq*s/rad]: 抑制振荡; 越大越稳但跟踪变钝
+    default_kd: [12.0, 16.0, 12.0, 16.0]
+
+    # 力矩上限 [iq]: 命令力矩限幅 (硬件电流上限 100, 电机典型 ±30)
+    torque_limit: [80.0, 80.0, 80.0, 80.0]
+
+    # 力矩变化率上限 [iq/s]: 限制力矩变化快慢, 防止冲击
+    # 注意: 与 update_rate 无关 (按时间计算), 调大让力矩更快建立
+    torque_rate_limit: [800.0, 800.0, 800.0, 800.0]
+
+    # 速度低通滤波系数 (0~1, 1=不过滤): 越小滤波越重, 阻尼滞后越大
+    velocity_filter_alpha: 0.5
+
+    # 参考缩放 (0~1): 调试时降低跟踪幅值避免力矩饱和, 不改 CPG 参数
+    # 例: 0.3 = 参考轨迹幅值缩到 30%, 方便验证控制器跟踪
+    ref_scale: 1.0
+
+    # 参考数据超时 [s]: 超过该时间未收到 CPG 参考 → 输出零力矩 (安全)
+    data_timeout: 0.01
