@@ -8,8 +8,13 @@
 # 用法:
 #   python3 plot_control_monitor.py --duration 20          # 采集20s后出图并保存PNG
 #   python3 plot_control_monitor.py --duration 20 --joint left_knee
+#   python3 plot_control_monitor.py --duration 20 --motor 2   # 按电机号选关节 (见下)
 #   python3 plot_control_monitor.py --duration 20 --live   # 实时滚动窗口 (边测边看)
 #   python3 plot_control_monitor.py --duration 20 --csv out.csv  # 额外导出CSV
+#
+# 关节↔电机对应: 从 --motor-map-file 指定的 yaml (默认 exo_controllers.yaml 的
+#   joint_motor_map 段) 读取, 与 URDF motor_map_file 一致。改配置文件里的
+#   motor_id 数组, 画图跟随 (--motor N 选的就是对应新关节)。标题会标注 (motor X)。
 #
 # 提示: 先启动步态 (ros2 topic pub /cpg/state_cmd std_msgs/msg/String "data: start" --once)
 #       再运行本脚本, 图表才有意义。
@@ -21,6 +26,8 @@ import os
 import sys
 import threading
 import time
+
+import yaml
 
 import numpy as np
 
@@ -42,6 +49,21 @@ NAN = float('nan')
 
 # 控制器 debug 发布器用 SensorDataQoS (best_effort), 订阅必须一致
 BE_QOS = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
+
+# 默认关节↔电机映射文件 (与 URDF motor_map_file 一致)
+DEFAULT_MOTOR_MAP_FILE = (
+    '/home/lsy/vins_ws/src/exoskeleton_hardware/config/exo_controllers.yaml')
+
+
+def load_motor_map(path):
+    """从 yaml 读取 joint_motor_map, 返回 {motor_id: joint_name} (按关节名)。
+    失败抛异常, 由调用方处理。"""
+    with open(path) as f:
+        cfg = yaml.safe_load(f)
+    mm = cfg['joint_motor_map']['ros__parameters']
+    joints = mm['joints']
+    ids = mm['motor_id']
+    return {int(mid): name for name, mid in zip(joints, ids)}
 
 
 class ControlMonitor(Node):
@@ -208,21 +230,51 @@ def main():
     parser = argparse.ArgumentParser(description='阻抗控制器误差/延迟监控')
     parser.add_argument('--duration', type=float, default=15.0, help='采集时长 [s]')
     parser.add_argument('--joint', default='left_knee', help='要展示的关节 (默认 left_knee)')
+    parser.add_argument('--motor', type=int, default=None,
+                        help='按电机号选关节 (从 motor_map_file 解析, 优先于 --joint)')
+    parser.add_argument('--motor-map-file', default=DEFAULT_MOTOR_MAP_FILE,
+                        help='关节↔电机映射文件 (默认 exo_controllers.yaml)')
     parser.add_argument('--live', action='store_true', help='实时滚动窗口模式')
     parser.add_argument('--csv', default=None, help='导出CSV路径 (可选)')
     parser.add_argument('--wait-for-start', action='store_true',
                         help='等待步态启动 (参考偏离0) 后再开始采集, 避免空闲数据污染统计')
     args = parser.parse_args()
 
+    # 从配置文件解析 关节↔电机 对应 (失败仅告警, 不阻塞)
+    mapping = None
+    try:
+        mapping = load_motor_map(args.motor_map_file)
+    except Exception as e:
+        print(f'[WARN] 读取映射文件失败: {e} (仅按关节名显示)', flush=True)
+
+    # 解析要展示的关节: --motor N 优先, 否则用 --joint
+    joint = args.joint
+    title_suffix = ''
+    if args.motor is not None:
+        if mapping is None or args.motor not in mapping:
+            avail = sorted(mapping) if mapping else []
+            print(f'[ERR] 电机 {args.motor} 不在映射中, 可用电机号: {avail}', flush=True)
+            rclpy.init(args=sys.argv)
+            rclpy.shutdown()
+            return 1
+        joint = mapping[args.motor]
+        title_suffix = f' (motor {args.motor})'
+        print(f'[INFO] 电机 {args.motor} → 关节 {joint} (来自 {args.motor_map_file})', flush=True)
+    elif mapping is not None:
+        rev = {j: m for m, j in mapping.items()}
+        if joint in rev:
+            title_suffix = f' (motor {rev[joint]})'
+            print(f'[INFO] 关节 {joint} ↔ 电机 {rev[joint]} (来自 {args.motor_map_file})', flush=True)
+
     rclpy.init()
-    monitor = ControlMonitor(args.joint, args.duration)
+    monitor = ControlMonitor(joint, args.duration)
     spin_thread = threading.Thread(target=rclpy.spin, args=(monitor,), daemon=True)
     spin_thread.start()
 
     # 等待步态启动后再开始正式采集 (只统计步态运行中的数据)
     if args.wait_for_start:
         print('[WAIT] 等待步态启动 (发送: ros2 topic pub /cpg/state_cmd ... start) ...', flush=True)
-        while not monitor.joint_active(args.joint):
+        while not monitor.joint_active(joint):
             time.sleep(0.1)
         monitor.clear_data()
         print('[WAIT] 检测到步态, 开始采集 ...', flush=True)
@@ -230,12 +282,12 @@ def main():
     if args.live:
         plt.ion()
         fig, axes = plt.subplots(2, 1, figsize=(11, 7))
-        print(f'[LIVE] 实时监控 {args.joint} ... Ctrl+C 结束')
+        print(f'[LIVE] 实时监控 {joint}{title_suffix} ... Ctrl+C 结束')
         last_plot = 0.0
         try:
             while not monitor.done():
                 data, timing, _ = monitor.snapshot()
-                jd = data.get(args.joint)
+                jd = data.get(joint)
                 if jd and len(jd['t']) > 5:
                     t = np.array(jd['t']); qr = np.array(jd['q_ref']); qm = np.array(jd['q_meas'])
                     ax = axes[0]
@@ -251,7 +303,7 @@ def main():
         finally:
             plt.ioff()
     else:
-        print(f'[REC] 采集 {args.duration}s 的 {args.joint} 控制数据 ... (先确保步态已 start)')
+        print(f'[REC] 采集 {args.duration}s 的 {joint}{title_suffix} 控制数据 ... (先确保步态已 start)')
         while not monitor.done():
             time.sleep(0.05)
         print('[REC] 采集完成, 生成图表 ...')
@@ -284,15 +336,15 @@ def main():
         with open(args.csv, 'w', newline='') as f:
             w = csv.writer(f)
             w.writerow(['t_s', 'q_ref', 'q_meas', 'tau'])
-            jd = data.get(args.joint, {})
+            jd = data.get(joint, {})
             for k in range(min(len(jd.get('t', [])), 100000)):
                 w.writerow([jd['t'][k], jd['q_ref'][k], jd['q_meas'][k], jd['tau'][k]])
         print(f'[OK] CSV 已导出: {args.csv}')
 
     # 出图
-    out_png = f'control_monitor_{args.joint}.png'
+    out_png = f'control_monitor_{joint}.png'
     try:
-        plot_figure(data, timing, args.joint, out_png)
+        plot_figure(data, timing, joint, out_png, title_suffix)
     except Exception as e:
         print(f'[ERR] 出图失败: {e}')
 

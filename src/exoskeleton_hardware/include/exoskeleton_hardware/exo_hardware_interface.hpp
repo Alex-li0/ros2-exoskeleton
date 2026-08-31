@@ -125,6 +125,10 @@ private:
   // 尝试重连: 扫描→打开→配置→清错→使能
   bool try_reconnect();
 
+  // 从 motor_map_file (YAML) 加载 关节↔电机ID + 方向符号
+  // 失败返回 false (配置错误, 不驱动错误电机)
+  bool load_motor_map(const std::string & path);
+
   // 断开时清理并准备重连
   void handle_disconnect();
 
@@ -138,6 +142,8 @@ private:
   double torque_limit_;          // 力矩限幅
   double current_limit_;         // 电流限幅 [A]
   bool use_mock_{false};         // 仿真模式
+  std::array<int8_t, NUM_JOINTS> joint_sign_{};  // 关节方向符号 ±1 (来自 exo_motor_map.yaml)
+  std::array<uint8_t, NUM_JOINTS> motor_id_{};   // 关节→电机ID (来自 exo_motor_map.yaml)
 
   // 节流日志用时钟 (成员避免 RT 线程中临时 Clock 悬垂/堆分配)
   rclcpp::Clock clock_;

@@ -1,10 +1,16 @@
 # ======================================================================
-# 外骨骼 ros2_control 控制器配置
+# 外骨骼 ros2_control 控制器配置 + 关节↔电机映射
 # 修改此文件后无需重新编译, 重启 launch 即生效 (launch 直接读 src 路径)
 #
 # 用法:
 #   ros2 launch exoskeleton_hardware exo_tune.launch.py
 #   # 步态: ros2 topic pub /cpg/state_cmd std_msgs/msg/String "data: start" --once
+#
+# 本文件两个用途:
+#   1) controller_manager 参数 (controller_manager/joint_state_broadcaster/
+#      exo_impedance_controller 三段, 给 ros2_control 节点加载)
+#   2) 硬件层关节↔电机映射 (末尾 joint_motor_map 段, 由硬件接口按
+#      motor_map_file 直接用 yaml-cpp 读取, 不是节点参数, 勿删除)
 # ======================================================================
 
 controller_manager:
@@ -55,7 +61,7 @@ exo_impedance_controller:
     torque_rate_limit: [800.0, 800.0, 800.0, 800.0]
 
     # 速度低通滤波系数 (0~1, 1=不过滤): 越小滤波越重, 阻尼滞后越大
-    velocity_filter_alpha: 0.5
+    velocity_filter_alpha: 1.0
 
     # 参考缩放 (0~1): 调试时降低跟踪幅值避免力矩饱和, 不改 CPG 参数
     # 例: 0.3 = 参考轨迹幅值缩到 30%, 方便验证控制器跟踪
@@ -63,3 +69,18 @@ exo_impedance_controller:
 
     # 参考数据超时 [s]: 超过该时间未收到 CPG 参考 → 输出零力矩 (安全)
     data_timeout: 0.01
+
+# ---------------- 硬件层: 关节↔电机映射 + 方向符号 ----------------
+# 由硬件接口按 URDF 的 motor_map_file 参数读取本段 (yaml-cpp 直接读文件)
+# 注: 本段必须写成合法 ROS 参数形式 (每个顶层节点以 ros__parameters 开头),
+#     否则 controller_manager 启动解析该文件会报错
+# 修改后重启 launch 生效, 无需重新编译
+#   joints    : 关节名 (顺序与 motor_id / joint_sign 一一对应)
+#   motor_id  : 各关节对应的下位机电机编号 (1~4, 对应 2 CAN × 2)
+#   joint_sign: 电机方向与 URDF 反向的关节设 -1, 正常为 1
+#               逐个接电机验证方向后修改 (RVIZ 显示与控制方向一起纠正)
+joint_motor_map:
+  ros__parameters:
+    joints: [left_hip3, left_knee, right_hip3, right_knee]
+    motor_id: [1, 2, 3, 4]
+    joint_sign: [1, 1, 1, 1]

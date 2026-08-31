@@ -10,8 +10,11 @@
 #include <chrono>
 #include <cstring>
 #include <cmath>
+#include <sstream>
 #include <string>
 #include <vector>
+
+#include <yaml-cpp/yaml.h>
 
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -313,6 +316,22 @@ hardware_interface::CallbackReturn ExoHardwareInterface::on_init(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
+  // 关节↔电机ID + 方向符号: 从 motor_map_file (YAML) 按关节名加载
+  // 无该参数时回退默认 motor_id=i+1, joint_sign=1 (旧行为)
+  motor_id_.fill(0);
+  joint_sign_.fill(1);
+  if (info.hardware_parameters.count("motor_map_file")) {
+    const std::string path = info.hardware_parameters.at("motor_map_file");
+    if (!load_motor_map(path)) {
+      RCLCPP_FATAL(
+        rclcpp::get_logger("ExoHardwareInterface"),
+        "加载电机映射失败: %s (请检查 exo_controllers.yaml 的 joint_motor_map 段)", path.c_str());
+      return hardware_interface::CallbackReturn::ERROR;
+    }
+  } else {
+    for (size_t i = 0; i < NUM_JOINTS; ++i) { motor_id_[i] = i + 1; }
+  }
+
   RCLCPP_INFO(
     rclcpp::get_logger("ExoHardwareInterface"),
     "on_init: port=%s, baud=%d, reduction=%.1f, "
@@ -321,6 +340,75 @@ hardware_interface::CallbackReturn ExoHardwareInterface::on_init(
     torque_limit_, current_limit_, use_mock_ ? "true" : "false", NUM_JOINTS);
 
   return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+// ===================== 关节↔电机映射加载 =====================
+// 从 YAML (exo_controllers.yaml 的 joint_motor_map 段, 数组形式) 按关节名匹配,
+// 加载 motor_id 与 joint_sign。任一关节缺失/非法都返回 false,
+// 避免配置错误驱动到错误电机。
+
+bool ExoHardwareInterface::load_motor_map(const std::string & path)
+{
+  YAML::Node root;
+  try {
+    root = YAML::LoadFile(path);
+  } catch (const YAML::Exception & e) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("ExoHardwareInterface"),
+      "motor_map_file 解析失败: %s", e.what());
+    return false;
+  }
+
+  const YAML::Node map = root["joint_motor_map"]["ros__parameters"];
+  if (!map || !map["joints"] || !map["motor_id"]) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("ExoHardwareInterface"),
+      "motor_map_file 缺少 joint_motor_map.ros__parameters 的 joints/motor_id");
+    return false;
+  }
+
+  const YAML::Node joints = map["joints"];
+  const YAML::Node ids = map["motor_id"];
+  const YAML::Node signs = map["joint_sign"];  // 可选, 缺省全 1
+
+  if (!joints.IsSequence() || !ids.IsSequence() ||
+      joints.size() != ids.size() ||
+      (signs && (!signs.IsSequence() || signs.size() != joints.size())))
+  {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("ExoHardwareInterface"),
+      "joints/motor_id/joint_sign 需为等长数组");
+    return false;
+  }
+
+  // 按关节名匹配: 把 joint_names_[i] 在 joints 数组中找到对应下标的 id/sign
+  for (size_t i = 0; i < NUM_JOINTS; ++i) {
+    bool found = false;
+    for (size_t j = 0; j < joints.size(); ++j) {
+      if (joints[j].as<std::string>() == joint_names_[i]) {
+        const uint8_t id = static_cast<uint8_t>(ids[j].as<int>());
+        const int sign = signs ? signs[j].as<int>() : 1;
+        if (id < 1 || id > NUM_JOINTS) {
+          RCLCPP_ERROR(
+            rclcpp::get_logger("ExoHardwareInterface"),
+            "关节 %s 的 motor_id=%u 越界 (需 1~%zu)",
+            joint_names_[i].c_str(), id, NUM_JOINTS);
+          return false;
+        }
+        motor_id_[i] = id;
+        joint_sign_[i] = (sign < 0) ? -1 : 1;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      RCLCPP_ERROR(
+        rclcpp::get_logger("ExoHardwareInterface"),
+        "关节 %s 不在 joint_motor_map.joints 中", joint_names_[i].c_str());
+      return false;
+    }
+  }
+  return true;
 }
 
 hardware_interface::CallbackReturn ExoHardwareInterface::on_configure(
@@ -657,8 +745,11 @@ hardware_interface::return_type ExoHardwareInterface::read(
   bool got_data = false;
   while (recv_feedback(motors)) {
     got_data = true;
-    for (size_t i = 0; i < motors.size() && i < NUM_JOINTS; ++i) {
-      const MotorFeedback & m = motors[i];
+    for (size_t i = 0; i < NUM_JOINTS; ++i) {
+      // 反馈帧按电机号升序 [motor1..motor4], 按 motor_id_ 取对应反馈
+      const size_t mi = static_cast<size_t>(motor_id_[i] - 1);
+      if (mi >= motors.size()) { continue; }  // 该关节的电机不在反馈帧中
+      const MotorFeedback & m = motors[mi];
 
       // 位置反馈: 输出轴单圈编码器 (0~65535 = 0~360°, 手册 §2.6, 始终有效)。
       // multi_turn 字段受固件 MOTOR_POLL_MULTI_ANG 开关控制 (默认关闭→恒0), 不使用。
@@ -678,14 +769,17 @@ hardware_interface::return_type ExoHardwareInterface::read(
         enc_zero_offset_[i] = enc_cont;
       }
 
-      hw_positions_[i] = static_cast<double>(enc_cont - enc_zero_offset_[i])
-                        * (2.0 * M_PI / static_cast<double>(usb_protocol::ENCODER_RESOLUTION));
+      // joint_sign: 电机方向与 URDF 反向的关节设为 -1, 位置/速度/力矩一起翻转
+      hw_positions_[i] = joint_sign_[i] *
+        (static_cast<double>(enc_cont - enc_zero_offset_[i])
+        * (2.0 * M_PI / static_cast<double>(usb_protocol::ENCODER_RESOLUTION)));
 
-      hw_velocities_[i] = static_cast<double>(m.speed_dps)
-                        / reduction_ratio_
-                        * usb_protocol::DPS_TO_RADS;
+      hw_velocities_[i] = joint_sign_[i] *
+        (static_cast<double>(m.speed_dps)
+        / reduction_ratio_
+        * usb_protocol::DPS_TO_RADS);
 
-      hw_efforts_[i] = static_cast<double>(m.iq);
+      hw_efforts_[i] = joint_sign_[i] * static_cast<double>(m.iq);
     }
   }
 
@@ -725,11 +819,12 @@ hardware_interface::return_type ExoHardwareInterface::write(
   // 对每个关节发送力矩控制指令
   for (size_t i = 0; i < NUM_JOINTS; ++i) {
     uint8_t data[6];
-    data[0] = static_cast<uint8_t>(i + 1);  // motor_id 1-indexed
+    data[0] = motor_id_[i];  // motor_id 1-indexed (来自 exo_motor_map.yaml)
     data[1] = usb_protocol::MODE_TORQUE;
 
     double cmd = std::clamp(hw_commands_[i], -torque_limit_, torque_limit_);
-    float iq_val = static_cast<float>(cmd);
+    // joint_sign: 电机方向反向的关节, 力矩指令也翻转 (与 read() 反馈一致)
+    float iq_val = static_cast<float>(joint_sign_[i] * cmd);
     std::memcpy(data + 2, &iq_val, sizeof(float));
 
     send_command(usb_protocol::CMD_MOTOR_SET_TARGET, data, sizeof(data));

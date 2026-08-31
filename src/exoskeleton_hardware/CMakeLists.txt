@@ -11,6 +11,7 @@ find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+find_package(yaml_cpp_vendor REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/exo_hardware_interface.cpp
@@ -25,6 +26,7 @@ ament_target_dependencies(${PROJECT_NAME}
   pluginlib
   rclcpp
   rclcpp_lifecycle
+  yaml_cpp_vendor
 )
 
 pluginlib_export_plugin_description_file(hardware_interface exoskeleton_hardware.xml)
@@ -85,6 +87,7 @@ ament_export_dependencies(
   pluginlib
   rclcpp
   rclcpp_lifecycle
+  yaml_cpp_vendor
 )
 
 ament_package()

@@ -702,10 +702,15 @@
       <param name="baud_rate">115200</param>
       <!-- 4 电机 (2 CAN × 2), 减速比 36:1, 16bit 编码器 -->
       <param name="reduction_ratio">36.0</param>
-      <param name="torque_limit">50.0</param>
+      <!-- 硬件层力矩安全上限 [iq], 实际限幅取 min(此值, 控制器 yaml torque_limit)
+           控制器 yaml 现为 80 → 生效上限 = 80; 此值只作硬件安全兜底 -->
+      <param name="torque_limit">200.0</param>
       <param name="current_limit">20.0</param>
       <!-- 真机测试: false 打开串口; 无硬件调试时改回 true 跳过串口 -->
       <param name="use_mock">false</param>
+      <!-- 关节↔电机映射在 exo_controllers.yaml 的 joint_motor_map 段
+           修改该 yaml 后重启 launch 生效, 无需重新编译 -->
+      <param name="motor_map_file">/home/lsy/vins_ws/src/exoskeleton_hardware/config/exo_controllers.yaml</param>
     </hardware>
 
     <!-- 左腿 2 个主动关节 -->
