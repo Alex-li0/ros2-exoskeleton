@@ -105,6 +105,6 @@ def generate_launch_description():
         # 启动的子文件
         include_depth_camera,
         include_vins,
-        include_mapping,
-        include_display
+        # include_mapping,
+        # include_display
     ])

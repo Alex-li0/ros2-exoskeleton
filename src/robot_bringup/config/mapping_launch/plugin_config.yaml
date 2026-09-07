@@ -34,3 +34,19 @@ erosion:
     dilation_size: 3
     iteration_n: 20
     reverse: True
+# 1. 表面法向量计算插件 (生成 normal_x, normal_y, normal_z)
+normal_filter:
+  type: "elevation_mapping_cupy::NormalFilter"
+  enable: true
+  fill: "elevation"            # 基于哪个输入层计算法向
+  radius: 0.1                  # 计算法向量的局部邻域半径 (米)，一般为网格分辨率的 2~3 倍
+  layer_name: "normal"
+
+  # 2. 地形可通行度计算插件 (生成 traversability)
+traversability_filter:
+  type: "elevation_mapping_cupy::TraversabilityFilter"
+  enable: true
+  fill: "elevation"
+  critical_slope: 0.5          # 极限临界坡度 (弧度，约 30 度)
+  critical_step: 0.15          # 极限跨越台阶高度 (米，如 15cm)
+  layer_name: "traversability"
