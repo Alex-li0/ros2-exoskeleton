@@ -4,6 +4,8 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/buffer.h>
+#include <terrain_adaptive_cpg/msg/cpg_debug.hpp>
+#include <terrain_adaptive_cpg/msg/cpg_parameter_target.hpp>
 #include <map>
 #include <vector>
 #include <string>
@@ -68,6 +70,7 @@ public:
         this->declare_parameter("ramp_time", 0.5);
         this->declare_parameter("initial_perturbation", 0.1);
         this->declare_parameter("publish_ankle", true);
+        this->declare_parameter("parameter_target_timeout_s", 0.0);
 
         // 2. 加载 Gait Library
         joint_names_ = {"left_hip3", "left_knee", "left_ankle",
@@ -148,11 +151,15 @@ public:
             std::bind(&AdaptiveCPGNode::state_cmd_callback, this, std::placeholders::_1));
         state_pub_ = this->create_publisher<std_msgs::msg::String>("/cpg/state", 10);
         switch_debug_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/cpg/switch_debug", 10);
+        cpg_debug_pub_ = this->create_publisher<terrain_adaptive_cpg::msg::CPGDebug>("/cpg/debug", 10);
 
         gait_mode_cmd_sub_ = this->create_subscription<std_msgs::msg::String>(
-            "/cpg/gait_mode_cmd", 10,
+            "/cpg/gait_mode_target", 10,
             std::bind(&AdaptiveCPGNode::gait_mode_cmd_callback, this, std::placeholders::_1));
         gait_mode_pub_ = this->create_publisher<std_msgs::msg::String>("/cpg/gait_mode", 10);
+        parameter_target_sub_ = this->create_subscription<terrain_adaptive_cpg::msg::CPGParameterTarget>(
+            "/cpg/parameter_target", 10,
+            std::bind(&AdaptiveCPGNode::parameter_target_callback, this, std::placeholders::_1));
 
         // 4. 初始化状态机
         cpg_state_ = CPGState::IDLE;
@@ -175,6 +182,9 @@ public:
         param_timer_active_ = true;
 
         last_time_ = this->now();
+        last_parameter_target_time_ = this->now();
+        amplitude_scales_.assign(joint_names_.size(), 1.0);
+        offset_deltas_.assign(joint_names_.size(), 0.0);
 
         publish_state("IDLE");
         RCLCPP_INFO(this->get_logger(),
@@ -190,6 +200,7 @@ private:
         double dt = (now - last_time_).seconds();
         last_time_ = now;
         if (dt <= 0.0 || dt > 0.1) dt = 0.002;  // 默认 2ms (500Hz)
+        update_modulation_status(now);
 
         // --- 2. IDLE 状态：冻结振荡器，输出 0 位 (站立静止) ---
         if (cpg_state_ == CPGState::IDLE)
@@ -223,6 +234,7 @@ private:
                 ref_msg.velocity.push_back(0.0);
             }
             cpg_ref_pub_->publish(ref_msg);
+            publish_structured_debug(now, 1.0, omega_, {}, {}, {}, {}, {}, {}, {}, {}, {});
             return;
         }
 
@@ -234,6 +246,8 @@ private:
             switch_alpha = compute_switch_progress();
             omega_current = (1.0 - switch_alpha) * switch_old_omega_ + switch_alpha * switch_new_omega_;
         }
+        if (continuous_modulation_active_)
+            omega_current *= omega_scale_;
 
         // --- 4. 振荡器自由运行 ---
         // 使用子步长积分 (与 optimizer 的 sample_cpg_one_cycle 完全一致)
@@ -389,6 +403,18 @@ private:
                 if (3 < (int)m.w_y.size()) { wy3 = m.w_y[3]; }
             }
 
+            const size_t joint_index = dbg_w_off.size();
+            if (continuous_modulation_active_)
+            {
+                w_off_cur += offset_deltas_[joint_index];
+                wx1 *= amplitude_scales_[joint_index];
+                wx2 *= amplitude_scales_[joint_index];
+                wx3 *= amplitude_scales_[joint_index];
+                wy1 *= amplitude_scales_[joint_index];
+                wy2 *= amplitude_scales_[joint_index];
+                wy3 *= amplitude_scales_[joint_index];
+            }
+
             // 计算 theta（clamp 前）
             double theta_interp = w_off_cur;
             theta_interp += wx1 * hx_[1] + wy1 * hy_[1];
@@ -466,6 +492,119 @@ private:
             ref_msg.velocity.push_back(joint_velocities[i]);
         }
         cpg_ref_pub_->publish(ref_msg);
+        publish_structured_debug(now, switch_alpha, omega_current, dbg_w_off, dbg_wx1, dbg_wx2,
+            dbg_wx3, dbg_wy1, dbg_wy2, dbg_wy3, dbg_output, joint_velocities);
+    }
+
+    void parameter_target_callback(const terrain_adaptive_cpg::msg::CPGParameterTarget::SharedPtr msg)
+    {
+        last_parameter_target_time_ = this->now();
+        continuous_modulation_active_ = false;
+        if (!msg->continuous_modulation_enabled || parameter_target_timeout_s_ <= 0.0)
+            return;
+        if (!msg->omega_scale_valid || !std::isfinite(msg->omega_scale) || msg->omega_scale <= 0.0)
+            return;
+        if (msg->joint_names.size() != msg->amplitude_scale.size() ||
+            msg->joint_names.size() != msg->amplitude_scale_valid.size() ||
+            msg->joint_names.size() != msg->offset_delta.size() ||
+            msg->joint_names.size() != msg->offset_delta_valid.size())
+            return;
+
+        std::vector<double> next_amplitude(joint_names_.size(), 1.0);
+        std::vector<double> next_offset(joint_names_.size(), 0.0);
+        for (size_t i = 0; i < joint_names_.size(); ++i)
+        {
+            auto it = std::find(msg->joint_names.begin(), msg->joint_names.end(), joint_names_[i]);
+            if (it == msg->joint_names.end()) return;
+            size_t index = std::distance(msg->joint_names.begin(), it);
+            if (!msg->amplitude_scale_valid[index] || !msg->offset_delta_valid[index] ||
+                !std::isfinite(msg->amplitude_scale[index]) || msg->amplitude_scale[index] <= 0.0 ||
+                !std::isfinite(msg->offset_delta[index]))
+                return;
+            next_amplitude[i] = msg->amplitude_scale[index];
+            next_offset[i] = msg->offset_delta[index];
+        }
+        omega_scale_ = msg->omega_scale;
+        amplitude_scales_ = std::move(next_amplitude);
+        offset_deltas_ = std::move(next_offset);
+        continuous_modulation_active_ = true;
+    }
+
+    void update_modulation_status(const rclcpp::Time &now)
+    {
+        if (continuous_modulation_active_ &&
+            (parameter_target_timeout_s_ <= 0.0 ||
+             (now - last_parameter_target_time_).seconds() > parameter_target_timeout_s_))
+        {
+            continuous_modulation_active_ = false;
+            omega_scale_ = 1.0;
+            std::fill(amplitude_scales_.begin(), amplitude_scales_.end(), 1.0);
+            std::fill(offset_deltas_.begin(), offset_deltas_.end(), 0.0);
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                "CPG 参数目标超时，回退到当前 gait library 的已验证参数");
+        }
+    }
+
+    std::string state_string() const
+    {
+        switch (cpg_state_)
+        {
+        case CPGState::IDLE: return "IDLE";
+        case CPGState::STARTING: return "STARTING";
+        case CPGState::WALKING: return "WALKING";
+        case CPGState::STOPPING: return "STOPPING";
+        case CPGState::SWITCHING: return "SWITCHING";
+        }
+        return "UNKNOWN";
+    }
+
+    void publish_structured_debug(const rclcpp::Time &stamp, double switch_progress, double omega,
+        const std::vector<double> &w_offset, const std::vector<double> &w_x1,
+        const std::vector<double> &w_x2, const std::vector<double> &w_x3,
+        const std::vector<double> &w_y1, const std::vector<double> &w_y2,
+        const std::vector<double> &w_y3, const std::vector<double> &joint_reference,
+        const std::vector<double> &joint_velocity_reference)
+    {
+        terrain_adaptive_cpg::msg::CPGDebug msg;
+        msg.header.stamp = stamp;
+        msg.state = state_string();
+        msg.gait_mode = current_gait_name_;
+        msg.phase = std::atan2(y_, x_);
+        msg.omega = omega;
+        msg.switch_progress = switch_progress;
+        msg.joint_names = joint_names_;
+        if (w_offset.empty())
+        {
+            for (const auto &name : joint_names_)
+            {
+                const auto &model = current_gait_->joints.at(name);
+                msg.w_offset.push_back(model.w_offset);
+                auto coefficient = [](const std::vector<double> &values, size_t i) {
+                    return i < values.size() ? values[i] : 0.0;
+                };
+                msg.w_x1.push_back(coefficient(model.w_x, 1));
+                msg.w_x2.push_back(coefficient(model.w_x, 2));
+                msg.w_x3.push_back(coefficient(model.w_x, 3));
+                msg.w_y1.push_back(coefficient(model.w_y, 1));
+                msg.w_y2.push_back(coefficient(model.w_y, 2));
+                msg.w_y3.push_back(coefficient(model.w_y, 3));
+                msg.joint_reference.push_back(0.0);
+                msg.joint_velocity_reference.push_back(0.0);
+            }
+        }
+        else
+        {
+            msg.w_offset = w_offset;
+            msg.w_x1 = w_x1; msg.w_x2 = w_x2; msg.w_x3 = w_x3;
+            msg.w_y1 = w_y1; msg.w_y2 = w_y2; msg.w_y3 = w_y3;
+            msg.joint_reference = joint_reference;
+            msg.joint_velocity_reference = joint_velocity_reference;
+        }
+        msg.continuous_modulation_active = continuous_modulation_active_;
+        msg.amplitude_scale = amplitude_scales_;
+        msg.offset_delta = offset_deltas_;
+        // TODO(data_required): 只保留 phase-rate 接口，禁止强制相位重置或未标定增益。
+        cpg_debug_pub_->publish(msg);
     }
 
     // ==================== 参数更新定时器回调 (100Hz) ====================
@@ -781,6 +920,7 @@ private:
         eta_omega_ = this->get_parameter("eta_omega").as_double();
         ramp_time_ = this->get_parameter("ramp_time").as_double();
         publish_ankle_ = this->get_parameter("publish_ankle").as_bool();
+        parameter_target_timeout_s_ = this->get_parameter("parameter_target_timeout_s").as_double();
 
         // omega 和 max_h_ 从当前 gait mode 读取
         omega_ = current_gait_->omega;
@@ -818,6 +958,11 @@ private:
 
     // 踝关节开关
     bool publish_ankle_;
+    bool continuous_modulation_active_ = false;
+    double parameter_target_timeout_s_ = 0.0;
+    double omega_scale_ = 1.0;
+    std::vector<double> amplitude_scales_;
+    std::vector<double> offset_deltas_;
 
     // Gait Library
     std::map<std::string, GaitMode> gait_library_;
@@ -839,9 +984,12 @@ private:
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr gait_mode_pub_;
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr switch_debug_pub_;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr gait_mode_cmd_sub_;
+    rclcpp::Publisher<terrain_adaptive_cpg::msg::CPGDebug>::SharedPtr cpg_debug_pub_;
+    rclcpp::Subscription<terrain_adaptive_cpg::msg::CPGParameterTarget>::SharedPtr parameter_target_sub_;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
     rclcpp::Time last_time_;
+    rclcpp::Time last_parameter_target_time_;
 };
 
 int main(int argc, char **argv)

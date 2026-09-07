@@ -1,0 +1,14 @@
+builtin_interfaces/Time stamp
+string terrain_mode
+bool terrain_mode_valid
+float64 slope
+bool slope_valid
+float64 step_height
+bool step_height_valid
+float64 step_depth
+bool step_depth_valid
+float64 boundary_distance
+bool boundary_distance_valid
+float64 confidence
+bool confidence_valid
+bool simulation_only

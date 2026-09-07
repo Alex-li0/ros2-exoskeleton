@@ -1,0 +1,13 @@
+topics:
+  - /terrain/modulation
+  - /terrain/scheduler_debug
+  - /cpg/parameter_target
+  - /cpg/gait_mode_cmd
+  - /cpg/gait_mode_target
+  - /cpg/gait_mode
+  - /cpg/state
+  - /cpg/debug
+  - /cpg/switch_debug
+  - /cpg/joint_ref
+  - /fused/odometry
+  - /fused/contact_state

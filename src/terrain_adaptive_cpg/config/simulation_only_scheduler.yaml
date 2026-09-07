@@ -1,0 +1,32 @@
+# simulation_only: these values are synthetic test stimuli, never real-machine settings.
+terrain_parameter_scheduler:
+  ros__parameters:
+    mode_switching_enabled: true
+    continuous_modulation_enabled: true
+    continuous_model_type: disabled  # synthetic direct target, not a terrain relationship
+    simulation_only_enabled: true
+    terrain_input_timeout_s: 0.30
+    odometry_timeout_s: 0.20
+    contact_timeout_s: 0.20
+    minimum_confidence: 0.60
+    enforce_covariance_limit: true
+    max_pose_covariance_diagonal: 0.50
+    joint_names: [left_hip3, left_knee, left_ankle, right_hip3, right_knee, right_ankle]
+    verified_gaits: [flat_walk]
+    terrain_mode_names: [flat, synthetic_stairs]
+    terrain_mode_gaits: [flat_walk, slope_up]
+    limits:
+      omega_scale_min: 0.80
+      omega_scale_max: 1.20
+      amplitude_scale_min: 0.70
+      amplitude_scale_max: 1.30
+      offset_delta_min: -0.10
+      offset_delta_max: 0.10
+      omega_scale_rate: 0.50
+      amplitude_scale_rate: 1.00
+      offset_delta_rate: 0.20
+      filter_time_constant: 0.10
+    simulation_target:
+      omega_scale: 1.50
+      amplitude_scale: 1.60
+      offset_delta: 0.30

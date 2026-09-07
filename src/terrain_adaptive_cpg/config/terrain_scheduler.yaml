@@ -1,0 +1,41 @@
+terrain_parameter_scheduler:
+  ros__parameters:
+    # Safe production defaults: no uncalibrated transition or continuous mapping is active.
+    mode_switching_enabled: false
+    continuous_modulation_enabled: false
+    continuous_model_type: disabled  # lookup_table/interpolation/regression are data-gated stubs
+    simulation_only_enabled: false
+
+    # TODO(data_required): set from measured perception/estimator latency distributions.
+    # Non-positive values keep the corresponding safety gate invalid.
+    terrain_input_timeout_s: 0.0
+    odometry_timeout_s: 0.0
+    contact_timeout_s: 0.0
+    # TODO(data_required): calibrate confidence against labelled terrain transitions.
+    minimum_confidence: -1.0
+    enforce_covariance_limit: false
+    # TODO(data_required): select from estimator error versus covariance calibration.
+    max_pose_covariance_diagonal: 0.0
+
+    joint_names: [left_hip3, left_knee, left_ankle, right_hip3, right_knee, right_ankle]
+    verified_gaits: [flat_walk]
+    terrain_mode_names: [flat]
+    terrain_mode_gaits: [flat_walk]
+
+    # Neutral bounds intentionally make continuous modulation a no-op.
+    # TODO(data_required): replace only after subject- and terrain-specific validation.
+    limits:
+      omega_scale_min: 1.0
+      omega_scale_max: 1.0
+      amplitude_scale_min: 1.0
+      amplitude_scale_max: 1.0
+      offset_delta_min: 0.0
+      offset_delta_max: 0.0
+      omega_scale_rate: 0.0
+      amplitude_scale_rate: 0.0
+      offset_delta_rate: 0.0
+      filter_time_constant: 0.0
+    simulation_target:
+      omega_scale: 1.0
+      amplitude_scale: 1.0
+      offset_delta: 0.0

@@ -13,10 +13,13 @@ adaptive_cpg_node:
     # true: 仿真时输出 CPG 踝关节角度 (可视化)
     # false: 实机时踝关节锁定 w_offset (被动关节不助力)
     publish_ankle: true
+    # 生产连续调制尚无标定数据，0.0 表示 CPG 不接受连续参数目标。
+    # TODO(data_required): 获得地形转换数据后再配置正超时值并启用。
+    parameter_target_timeout_s: 0.0
 
     # === Gait Library ===
     # default_gait: 启动时加载的 gait mode
-    # 通过 /terrain/gait_mode 话题切换
+    # 统一外部入口为 /cpg/gait_mode_cmd，由安全调度节点检查后转发。
     default_gait: flat_walk
 
     gait_modes: [flat_walk, slope_up]   # 可用 mode 列表
@@ -74,7 +77,8 @@ adaptive_cpg_node:
             w_y: [0.0000, 0.0276, -0.0028, -0.0085]
 
       slope_up:
-        omega: 5.874750         # 占位，待数据拟合后替换
+        # TODO(data_required): 以下为 1.0 m/s 平地 Trial1 占位，不是实机上坡参数。
+        omega: 5.874750
         joints:
           left_hip3:
             num_harmonics: 4
