@@ -3,23 +3,35 @@ from launch import LaunchDescription
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration
 
 
 def generate_launch_description():
     package_name = 'elevation_mapping_cupy'
 
     # Define paths
-    core_param_path = os.path.join('/home/lsy/vins_ws/src/elevation_mapping_cupy/mapping_launch/config/core_param.yaml')
+    mapping_launch_share = get_package_share_directory('mapping_launch')
+    core_param_path = os.path.join(
+        mapping_launch_share, 'config', 'core_param.yaml'
+    )
+    default_robot_param_path = os.path.join(
+        mapping_launch_share, 'config', 'base.yaml'
+    )
+    default_plugin_config_path = os.path.join(
+        mapping_launch_share, 'config', 'plugin_config.yaml'
+    )
 
     # Declare launch arguments
     robot_param_arg = DeclareLaunchArgument(
         'robot_config',
-        # default_value='turtle_bot/turle_bot_simple.yaml',
-        default_value='/home/lsy/vins_ws/src/elevation_mapping_cupy/mapping_launch/config/base.yaml',
-        description='Name of the robot-specific config file within '
-                    'config/setups/'
+        default_value=default_robot_param_path,
+        description='Path to the robot-specific parameter YAML file'
+    )
+
+    plugin_config_arg = DeclareLaunchArgument(
+        'plugin_config',
+        default_value=default_plugin_config_path,
+        description='Path to the elevation-map plugin YAML file'
     )
 
     use_sim_time_arg = DeclareLaunchArgument(
@@ -29,7 +41,7 @@ def generate_launch_description():
     )
 
     # Get launch configurations
-    robot_param_path = PathJoinSubstitution(['/home/lsy/vins_ws/src/elevation_mapping_cupy/mapping_launch/config/base.yaml'])
+    robot_param_path = LaunchConfiguration('robot_config')
     use_sim_time = LaunchConfiguration('use_sim_time')
 
     # Verify core config exists
@@ -46,12 +58,16 @@ def generate_launch_description():
         parameters=[
             core_param_path,
             robot_param_path,
-            {'use_sim_time': use_sim_time}
+            {
+                'use_sim_time': use_sim_time,
+                'plugin_config_file': LaunchConfiguration('plugin_config'),
+            }
         ]
     )
 
     return LaunchDescription([
         robot_param_arg,
+        plugin_config_arg,
         use_sim_time_arg,
         elevation_mapping_node,
     ])

@@ -26,28 +26,7 @@ inpainting:
   extra_params:
     method: "telea"
 
-# 4. 法向量计算 (必须在 traversability 之前)
-normal_filter:
-  enable: True
-  fill_nan: False
-  is_height_layer: False
-  layer_name: "normal"
-  extra_params:
-    input_layer_name: "smooth"                # 用平滑后的地表算出的法线更干净
-    radius: 0.1                               # 邻域半径 (米)
-
-# 5. 可通行度初筛 (必须在 erosion 之前计算出 traversability)
-traversability_filter:
-  enable: True
-  fill_nan: False
-  is_height_layer: False
-  layer_name: "traversability"
-  extra_params:
-    input_layer_name: "smooth"
-    critical_slope: 0.5                       # 极限坡度 (rad，约30度)
-    critical_step: 0.15                       # 极限台阶 (m)
-
-# 6. 安全边界膨胀 (输入依赖 traversability)
+# 4. 安全边界膨胀。traversability 和法向量是地图内建层，不是插件。
 erosion:
   enable: True
   fill_nan: False

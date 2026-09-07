@@ -90,7 +90,23 @@ class ElevationMappingNode(Node):
 
         self.root = get_package_share_directory("elevation_mapping_cupy")
         weight_file = os.path.join(self.root, "config/core/weights.dat")
-        plugin_config_file = os.path.join(self.root, "config/core/plugin_config.yaml")
+        default_plugin_config_file = os.path.join(
+            self.root, "config/core/plugin_config.yaml"
+        )
+        if self.has_parameter("plugin_config_file"):
+            plugin_config_file = self.get_parameter(
+                "plugin_config_file"
+            ).get_parameter_value().string_value
+        else:
+            plugin_config_file = default_plugin_config_file
+        plugin_config_file = os.path.abspath(
+            os.path.expanduser(plugin_config_file)
+        )
+        if not os.path.isfile(plugin_config_file):
+            raise FileNotFoundError(
+                f"Plugin config file does not exist: {plugin_config_file}"
+            )
+        self.get_logger().info(f"Loading plugin config: {plugin_config_file}")
 
         # Initialize parameters with some defaults
         self.param = Parameter(
