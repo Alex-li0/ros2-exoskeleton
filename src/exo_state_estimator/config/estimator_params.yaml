@@ -7,10 +7,14 @@ ct_exo_state_node:
     pelvis_frame: "pelvis_fused"
     imu_frame: "imu"
 
+    # 传感器输入。关节状态必须来自编码器反馈，不能使用 /cpg/joint_ref。
+    imu_topic: "/imu/pelvis"
+    joint_state_topic: "/joint_states"
+
     # ============================================================
     # URDF 路径 (用于 FK 正运动学 via KDL)
     # ============================================================
-    urdf_path: ""  # 必须设置, 指向 robot_display.urdf
+    urdf_path: "/home/lsy/vins_ws/src/robot_display/urdf/robot_display.urdf"
 
     # ============================================================
     # 优化器参数

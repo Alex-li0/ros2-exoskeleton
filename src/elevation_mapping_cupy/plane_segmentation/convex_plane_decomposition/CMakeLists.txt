@@ -91,6 +91,7 @@ if(BUILD_TESTING)
     test/testPipeline.cpp
     test/testPlanarRegion.cpp
     test/testRegionGrowing.cpp
+    test/testSyntheticPlaneExtraction.cpp
     test/testUpsampling.cpp
   )
   target_link_libraries(test_${PROJECT_NAME}

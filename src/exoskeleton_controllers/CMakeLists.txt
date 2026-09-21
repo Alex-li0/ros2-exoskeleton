@@ -12,7 +12,9 @@ find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+find_package(realtime_tools REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/exo_impedance_controller.cpp
@@ -28,7 +30,9 @@ ament_target_dependencies(${PROJECT_NAME}
   pluginlib
   rclcpp
   rclcpp_lifecycle
+  realtime_tools
   sensor_msgs
+  std_msgs
 )
 
 pluginlib_export_plugin_description_file(controller_interface exoskeleton_controllers.xml)
@@ -65,7 +69,9 @@ ament_export_dependencies(
   pluginlib
   rclcpp
   rclcpp_lifecycle
+  realtime_tools
   sensor_msgs
+  std_msgs
 )
 
 ament_package()

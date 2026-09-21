@@ -9,9 +9,9 @@
 
 import os
 
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -35,6 +35,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'controllers_config', default_value=controllers_yaml,
             description='控制器 YAML 配置文件路径'),
+        DeclareLaunchArgument(
+            'start_impedance_controller', default_value='true',
+            description='是否加载并激活阻抗控制器'),
 
         # robot_state_publisher（发布 URDF 到 /robot_description 和 TF）
         Node(
@@ -70,6 +73,7 @@ def generate_launch_description():
             package='controller_manager',
             executable='spawner',
             arguments=['exo_impedance_controller', '-c', '/controller_manager'],
+            condition=IfCondition(LaunchConfiguration('start_impedance_controller')),
             output='screen',
         ),
     ])

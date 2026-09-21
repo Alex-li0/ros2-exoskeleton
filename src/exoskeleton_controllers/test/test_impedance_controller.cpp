@@ -17,6 +17,29 @@ protected:
     return kp * (q_ref - q) + kd * (qdot_ref - qdot) + tau_ff;
   }
 
+  double compute_virtual_tube(
+    double position_error, double velocity_error, double kp, double kd,
+    double half_width, double transition_width)
+  {
+    if (half_width <= 0.0)
+    {
+      return kp * position_error + kd * velocity_error;
+    }
+    const double outside_distance = std::abs(position_error) - half_width;
+    if (outside_distance <= 0.0)
+    {
+      return 0.0;
+    }
+    const double wall_error = std::copysign(outside_distance, position_error);
+    if (transition_width <= 0.0)
+    {
+      return kp * wall_error + kd * velocity_error;
+    }
+    const double normalized = std::clamp(outside_distance / transition_width, 0.0, 1.0);
+    const double activation = normalized * normalized * (3.0 - 2.0 * normalized);
+    return activation * (kp * wall_error + kd * velocity_error);
+  }
+
   // 力矩限幅
   double clamp_torque(double tau, double limit)
   {
@@ -77,6 +100,31 @@ TEST_F(ImpedanceLawTest, NegativeError)
 {
   double tau = compute_impedance(-0.1, 0.0, 0.0, 0.0, 100.0, 5.0, 0.0);
   EXPECT_NEAR(tau, -10.0, 1e-10);
+}
+
+TEST_F(ImpedanceLawTest, VirtualTubeSuppressesFeedbackInsideBoundary)
+{
+  EXPECT_DOUBLE_EQ(compute_virtual_tube(0.09, 5.0, 100.0, 10.0, 0.1, 0.02), 0.0);
+}
+
+TEST_F(ImpedanceLawTest, VirtualTubeUsesOnlyDistanceOutsideBoundary)
+{
+  EXPECT_NEAR(compute_virtual_tube(0.15, 0.0, 100.0, 10.0, 0.1, 0.0), 5.0, 1e-10);
+  EXPECT_NEAR(compute_virtual_tube(-0.15, 0.0, 100.0, 10.0, 0.1, 0.0), -5.0, 1e-10);
+}
+
+TEST_F(ImpedanceLawTest, VirtualTubeSmoothstepTransition)
+{
+  // 越界距离为平滑宽度的一半时，smoothstep(0.5)=0.5。
+  EXPECT_NEAR(compute_virtual_tube(0.11, 0.0, 100.0, 0.0, 0.1, 0.02), 0.5, 1e-10);
+}
+
+TEST_F(ImpedanceLawTest, ZeroWidthMatchesLegacyFeedback)
+{
+  EXPECT_NEAR(
+    compute_virtual_tube(0.1, 0.2, 50.0, 8.0, 0.0, 0.0),
+    compute_impedance(0.1, 0.0, 0.2, 0.0, 50.0, 8.0, 0.0), 1e-10);
+  EXPECT_NEAR(compute_virtual_tube(0.0, 0.2, 50.0, 8.0, 0.0, 0.0), 1.6, 1e-10);
 }
 
 // ===================== 力矩限幅测试 =====================

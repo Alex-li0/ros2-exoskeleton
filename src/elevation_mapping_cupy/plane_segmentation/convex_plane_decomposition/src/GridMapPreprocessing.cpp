@@ -41,7 +41,7 @@ void GridMapPreprocessing::inpaint(grid_map::GridMap& gridMap, const std::string
 bool containsFiniteValue(const grid_map::Matrix& map) {
   for (int col = 0; col < map.cols(); ++col) {
     for (int row = 0; row < map.rows(); ++row) {
-      if (std::isfinite(map(col, row))) {
+      if (std::isfinite(map(row, col))) {
         return true;
       }
     }

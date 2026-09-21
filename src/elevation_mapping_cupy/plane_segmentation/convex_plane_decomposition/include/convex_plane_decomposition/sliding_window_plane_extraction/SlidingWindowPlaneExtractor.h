@@ -18,7 +18,8 @@ class SlidingWindowPlaneExtractor {
   SlidingWindowPlaneExtractor(const SlidingWindowPlaneExtractorParameters& parameters,
                               const ransac_plane_extractor::RansacPlaneExtractorParameters& ransacParameters);
 
-  void runExtraction(const grid_map::GridMap& map, const std::string& layer_height);
+  void runExtraction(const grid_map::GridMap& map, const std::string& layer_height,
+                     const grid_map::Matrix* observedMask = nullptr);
 
   const SegmentedPlanesMap& getSegmentedPlanesMap() const { return segmentedPlanesMap_; }
 

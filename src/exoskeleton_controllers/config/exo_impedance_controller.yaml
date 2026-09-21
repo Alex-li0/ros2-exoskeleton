@@ -13,12 +13,16 @@ exo_impedance_controller:
       - right_hip3   # 索引 2
       - right_knee   # 索引 3
 
-    # 控制律: τ = Kp*(q_ref - q) + Kd*(q̇_ref - q̇) + τ_ff
+    # 虚拟管道壁控制：管内阻抗为0，管外按Kp/Kd产生边界恢复命令。
     # 刚度 Kp [iq/rad]: 越大误差越小, 过大则振荡 (实测 knee=120 会欠阻尼振荡)
     default_kp: [60.0, 80.0, 60.0, 80.0]
 
     # 阻尼 Kd [iq*s/rad]: 抑制振荡; 越大越稳但跟踪变钝
     default_kd: [12.0, 16.0, 12.0, 16.0]
+
+    # 虚拟管道半宽与边界平滑激活宽度 [rad]。0保持旧阻抗律行为。
+    default_tube_half_width: [0.0, 0.0, 0.0, 0.0]
+    default_tube_transition_width: [0.0, 0.0, 0.0, 0.0]
 
     # 力矩上限 [iq]: 命令力矩限幅 (硬件电流上限 100, 电机典型 ±30)
     torque_limit: [80.0, 80.0, 80.0, 80.0]
@@ -34,3 +38,7 @@ exo_impedance_controller:
 
     # 参考数据超时 [s]: 超时输出零力矩 (安全)
     data_timeout: 0.01
+
+    tuning_command_timeout: 0.25
+    # 透明度和助力曲线预留输入超时；无发布者时两项为0。
+    auxiliary_command_timeout: 0.1

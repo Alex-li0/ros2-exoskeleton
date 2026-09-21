@@ -1,7 +1,12 @@
 import os
 import yaml
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction, ExecuteProcess
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    LogInfo,
+    OpaqueFunction,
+)
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -17,11 +22,17 @@ launch_args = [
     ),
 
     DeclareLaunchArgument(name="namespace", default_value="ov_msckf", description="namespace"),
-    DeclareLaunchArgument(name="ov_enable", default_value="true", description="enable OpenVINS node"),
-    DeclareLaunchArgument(name="rviz_enable", default_value="true", description="enable rviz node"),
-    
+    DeclareLaunchArgument(
+        name="ov_enable", default_value="true",
+        description="enable OpenVINS node"),
+    DeclareLaunchArgument(
+        name="rviz_enable", default_value="true",
+        description="enable rviz node"),
+
     # --- 控制 Bag 播放的参数 ---
-    DeclareLaunchArgument(name="bag_enable", default_value="false", description="enable ros2 bag play"),
+    DeclareLaunchArgument(
+        name="bag_enable", default_value="false",
+        description="enable ros2 bag play"),
     DeclareLaunchArgument(
         name="bag_path",
         default_value=f"{WORKSPACE_SRC_DIR}/vins_launch/bags/V1_01_easy",
@@ -36,13 +47,16 @@ launch_args = [
     DeclareLaunchArgument(
         name="config_path",
         default_value="",
-        description="path to estimator_config.yaml. If not given, determined based on provided 'config' above",
+        description=(
+            "path to estimator_config.yaml. If not given, determined based "
+            "on provided 'config' above"),
     ),
     DeclareLaunchArgument(name="verbosity", default_value="INFO"),
     DeclareLaunchArgument(name="use_stereo", default_value="true"),
     DeclareLaunchArgument(name="max_cameras", default_value="2"),
     DeclareLaunchArgument(name="save_total_state", default_value="false")
 ]
+
 
 def launch_setup(context):
     # ---------------------------------------------------------
@@ -55,7 +69,9 @@ def launch_setup(context):
         with open(yaml_file_path, 'r') as f:
             yaml_config = yaml.safe_load(f)
     else:
-        print(f"[WARN] Yaml file not found at {yaml_file_path}, using LaunchArguments defaults.")
+        print(
+            f"[WARN] Yaml file not found at {yaml_file_path}, "
+            "using LaunchArguments defaults.")
 
     # ---------------------------------------------------------
     # 3. 辅助函数：优先取 YAML，没有则取 LaunchConfiguration
@@ -64,32 +80,34 @@ def launch_setup(context):
         if key in yaml_config:
             return yaml_config[key]
         return LaunchConfiguration(key)
-    
+
     config_path = get_val("config_path")
     if not config_path:
         configs_dir = f"{WORKSPACE_SRC_DIR}/robot_bringup/config/vins_launch"
         available_configs = os.listdir(configs_dir)
         config = get_val("config")
-        
+
         if config in available_configs:
             config_path = os.path.join(configs_dir, config, "estimator_config.yaml")
         else:
             return [
                 LogInfo(
-                    msg="ERROR: unknown config: '{}' - Available configs are: {} - not starting OpenVINS".format(
-                        config, ", ".join(available_configs)
-                    )
+                    msg=(
+                        "ERROR: unknown config: '{}' - Available configs are: "
+                        "{} - not starting OpenVINS").format(
+                            config, ", ".join(available_configs))
                 )
             ]
     else:
         if not os.path.isfile(config_path):
             return [
                 LogInfo(
-                    msg="ERROR: config_path file: '{}' - does not exist. - not starting OpenVINS".format(
-                        config_path)
+                    msg=(
+                        "ERROR: config_path file: '{}' - does not exist. - "
+                        "not starting OpenVINS").format(config_path)
                     )
             ]
-            
+
     # OpenVINS 节点
     node1 = Node(
         package="ov_msckf",
@@ -112,7 +130,8 @@ def launch_setup(context):
         executable="rviz2",
         condition=IfCondition(LaunchConfiguration("rviz_enable")),
         arguments=[
-            "-d", get_val("rviz_config_path"),  # 关键修复点：拆成列表形式，避免字符串与占位符强行相加报错
+            # 拆成列表形式，避免字符串与占位符强行相加报错。
+            "-d", get_val("rviz_config_path"),
             "--ros-args",
             "--log-level",
             "warn",
@@ -139,7 +158,8 @@ def launch_setup(context):
         ]
     )
 
-    return [node1, node2, static_tf_node]
+    return [node1, node2, bag_play, static_tf_node]
+
 
 def generate_launch_description():
     opfunc = OpaqueFunction(function=launch_setup)

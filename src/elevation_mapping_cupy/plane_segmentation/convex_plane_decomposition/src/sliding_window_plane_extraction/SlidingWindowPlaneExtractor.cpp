@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cmath>
 #include <iostream>
+#include <stdexcept>
 
 #include <Eigen/Eigenvalues>
 
@@ -46,7 +47,8 @@ SlidingWindowPlaneExtractor::SlidingWindowPlaneExtractor(const SlidingWindowPlan
                                                          const ransac_plane_extractor::RansacPlaneExtractorParameters& ransacParameters)
     : parameters_(parameters), ransacParameters_(ransacParameters) {}
 
-void SlidingWindowPlaneExtractor::runExtraction(const grid_map::GridMap& map, const std::string& layer_height) {
+void SlidingWindowPlaneExtractor::runExtraction(const grid_map::GridMap& map, const std::string& layer_height,
+                                                const grid_map::Matrix* observedMask) {
   // Extract basic map information
   map_ = &map;
   elevationLayer_ = layer_height;
@@ -62,12 +64,25 @@ void SlidingWindowPlaneExtractor::runExtraction(const grid_map::GridMap& map, co
   // Need a buffer of at least the linear size of the image. But no need to shrink if the buffer is already bigger.
   const int linearMapSize = mapSize(0) * mapSize(1);
   if (surfaceNormals_.size() < linearMapSize) {
-    surfaceNormals_.reserve(linearMapSize);
+    surfaceNormals_.resize(linearMapSize, Eigen::Vector3d::Zero());
+  } else {
     std::fill_n(surfaceNormals_.begin(), linearMapSize, Eigen::Vector3d::Zero());
   }
 
   // Run
   runSlidingWindowDetector();
+  if (observedMask != nullptr) {
+    if (observedMask->rows() != binaryImagePatch_.rows || observedMask->cols() != binaryImagePatch_.cols) {
+      throw std::invalid_argument("SlidingWindowPlaneExtractor: observed mask size does not match the processed map");
+    }
+    for (int row = 0; row < observedMask->rows(); ++row) {
+      for (int col = 0; col < observedMask->cols(); ++col) {
+        if (!std::isfinite((*observedMask)(row, col)) || (*observedMask)(row, col) <= 0.0F) {
+          binaryImagePatch_.at<uint8_t>(row, col) = 0U;
+        }
+      }
+    }
+  }
   runSegmentation();
   extractPlaneParametersFromLabeledImage();
 

@@ -8,11 +8,12 @@ from launch_ros.actions import Node
 # 定义工作空间的绝对路径
 WORKSPACE_SRC_DIR = "/home/lsy/vins_ws/src"
 
+
 def generate_launch_description():
     # 改为你自己的包名和URDF文件名
     package_name = 'robot_display'
-    urdf_file_name = 'robot_display.urdf' 
-    
+    urdf_file_name = 'robot_display.urdf'
+
     urdf_path = os.path.join(
         get_package_share_directory(package_name),
         'urdf',
@@ -28,7 +29,8 @@ def generate_launch_description():
     # ==========================================================
     rviz_config_arg = DeclareLaunchArgument(
         'rviz_config',
-        default_value=f'{WORKSPACE_SRC_DIR}/robot_bringup/rviz/robot_display.rviz',
+        default_value=(
+            f'{WORKSPACE_SRC_DIR}/robot_bringup/rviz/robot_display.rviz'),
         description='Path to the RViz config file'
     )
 
@@ -42,7 +44,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{'robot_description': robot_desc}]
     )
-        
+
     # ==========================================================
     # 3. 启动 rviz2 节点
     # ==========================================================
@@ -50,7 +52,7 @@ def generate_launch_description():
         package="rviz2",
         executable="rviz2",
         arguments=[
-            "-d", LaunchConfiguration("rviz_config"), 
+            "-d", LaunchConfiguration("rviz_config"),
             "--ros-args",
             "--log-level",
             "warn",

@@ -1,0 +1,59 @@
+/plane_segmentation_node:
+  ros__parameters:
+    input_topic: /elevation_mapping_node/elevation_map_raw
+    elevation_layer: elevation
+    variance_layer: variance
+    target_frame: global  # Gravity-aligned elevation-map frame; Z is vertical.
+
+    processing_rate_hz: 5.0  # TODO(data_required): select from measured p95 latency and raw-map arrival rate.
+    input_timeout_sec: 1.0   # TODO(data_required): derive from measured raw-map jitter/dropouts.
+    tf_timeout_sec: 0.1      # TODO(data_required): derive from measured TF availability latency.
+
+    roi:
+      center_frame: imu       # Runtime-adjustable origin; only its position is used, never its orientation.
+      side_length: 4.0        # TODO(data_required): runtime-adjustable square side length in global XY.
+
+    minimum_valid_cells: 25       # TODO(data_required): tune against real raw-map sparsity.
+    minimum_region_area: 0.04     # TODO(data_required): tune for stable geometry; not a safety threshold.
+    validity:
+      use_variance: false         # TODO(data_required): enable after validating variance semantics and distribution.
+      maximum_variance: 0.05      # TODO(data_required): placeholder, ignored while use_variance is false.
+
+    publish_planar_terrain: true
+    publish_debug_outputs: true
+    marker_line_width: 0.005
+
+    preprocessing:
+      resolution: 0.04            # TODO(data_required): benchmark against the real raw-map resolution.
+      kernelSize: 3               # TODO(data_required): validate denoising versus edge preservation.
+      numberOfRepeats: 1          # TODO(data_required): validate denoising versus latency.
+
+    sliding_window_plane_extractor:
+      kernel_size: 3
+      planarity_opening_filter: 0
+      plane_inclination_threshold_degrees: 30.0       # TODO(data_required)
+      local_plane_inclination_threshold_degrees: 35.0 # TODO(data_required)
+      plane_patch_error_threshold: 0.02               # TODO(data_required)
+      min_number_points_per_label: 4                  # TODO(data_required)
+      connectivity: 4
+      include_ransac_refinement: true
+      global_plane_fit_distance_error_threshold: 0.025       # TODO(data_required)
+      global_plane_fit_angle_error_threshold_degrees: 25.0   # TODO(data_required)
+
+    ransac_plane_refinement:
+      probability: 0.001          # TODO(data_required)
+      min_points: 4.0             # TODO(data_required)
+      epsilon: 0.025              # TODO(data_required)
+      cluster_epsilon: 0.041      # TODO(data_required)
+      normal_threshold: 25.0      # TODO(data_required)
+
+    contour_extraction:
+      marginSize: 1               # TODO(data_required): validate boundary erosion on real maps.
+
+    postprocessing:
+      extracted_planes_height_offset: 0.0
+      nonplanar_height_offset: 0.02       # TODO(data_required)
+      nonplanar_horizontal_offset: 1      # TODO(data_required)
+      smoothing_dilation_size: 0.2        # TODO(data_required)
+      smoothing_box_kernel_size: 0.1      # TODO(data_required)
+      smoothing_gauss_kernel_size: 0.05   # TODO(data_required)

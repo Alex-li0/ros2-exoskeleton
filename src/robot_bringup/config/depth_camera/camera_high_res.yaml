@@ -19,10 +19,10 @@
     enable_accel: true        
     global_time_enabled: true
     # --- 关键修复: FPS 必须是整数 (Integer) ---
-    # D435i 最稳定的 IMU 频率是 Gyro 200Hz / Accel 100Hz 
-    # 填入不支持的 400/250 可能导致启动回退或报错
-    gyro_fps: 400             # [Fixed] integer
-    accel_fps: 400            # [Fixed] integer
+    # D435i 支持的高频配置: Gyro 400Hz / Accel 250Hz。
+    # 录包前仍需用 ros2 topic hz 核验设备实际输出率。
+    gyro_fps: 400
+    accel_fps: 250
     
     enable_sync: true         # 开启硬件时间同步
     
@@ -48,14 +48,12 @@
 
     # --- 开启点云发布 ---
 
-    # enable_pointcloud: true
-    # pointcloud_texture_stream: 'RS2_STREAM_ANY' 
-    # pointcloud_qos: 'SENSOR_DATA' 
-    # allow_no_texture_points: true 
-
     align_depth.enable: false
     pointcloud.enable: true
-    pointcloud.pointcloud_qos: 'SENSOR_DATA'
+    # 彩色流关闭时，使用 infra1 为点云纹理；对应驱动官方 infra 示例。
+    pointcloud.stream_filter: 3
+    pointcloud.stream_index_filter: 1
+    pointcloud.allow_no_texture_points: true
     
     # --- 后处理滤镜链 (Post-processing Filters) ---
     filters: 'decimation,spatial,temporal'
@@ -87,7 +85,5 @@
     color_width: 640
     color_height: 480
     color_fps: 30
-    align_depth: true 
-
     # 自动曝光策略
     enable_auto_exposure: true

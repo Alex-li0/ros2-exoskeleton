@@ -26,15 +26,10 @@ def generate_launch_description():
                 LaunchConfiguration('config_file'),
             ],
             remappings=[
-                # 独立 IMU 传感器 (非 VIO 内置的 D435i IMU)
-                # 当 use_imu_factor=true 时需要配置正确的 topic
-                ('/imu/standalone', '/imu/pelvis'),
-
                 # VIO 来自 OpenVINS
                 # ('/ov_msckf/odomimu', '/ov_msckf/odomimu'),
 
-                # 关节状态 (来自 CPG 控制器或硬件)
-                # ('/cpg/joint_ref', '/joint_states/hardware'),
+                # imu_topic 和 joint_state_topic 在 estimator_params.yaml 中配置。
 
                 # 高程图
                 # ('/elevation_mapping_node/elevation_map_raw',

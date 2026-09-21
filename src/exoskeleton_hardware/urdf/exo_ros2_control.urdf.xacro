@@ -716,31 +716,59 @@
     <!-- 左腿 2 个主动关节 -->
     <joint name="left_hip3">
       <command_interface name="effort"/>
+      <command_interface name="zero_position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>  <!-- 电机 iq 电流 -->
+      <state_interface name="temperature"/>
+      <state_interface name="error_state"/>
+      <state_interface name="feedback_age_ms"/>
+      <state_interface name="feedback_valid"/>
+      <state_interface name="stm32_tick_ms"/>
+      <state_interface name="feedback_sequence"/>
     </joint>
 
     <joint name="left_knee">
       <command_interface name="effort"/>
+      <command_interface name="zero_position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
+      <state_interface name="temperature"/>
+      <state_interface name="error_state"/>
+      <state_interface name="feedback_age_ms"/>
+      <state_interface name="feedback_valid"/>
+      <state_interface name="stm32_tick_ms"/>
+      <state_interface name="feedback_sequence"/>
     </joint>
 
     <!-- 右腿 2 个主动关节 -->
     <joint name="right_hip3">
       <command_interface name="effort"/>
+      <command_interface name="zero_position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
+      <state_interface name="temperature"/>
+      <state_interface name="error_state"/>
+      <state_interface name="feedback_age_ms"/>
+      <state_interface name="feedback_valid"/>
+      <state_interface name="stm32_tick_ms"/>
+      <state_interface name="feedback_sequence"/>
     </joint>
 
     <joint name="right_knee">
       <command_interface name="effort"/>
+      <command_interface name="zero_position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
+      <state_interface name="temperature"/>
+      <state_interface name="error_state"/>
+      <state_interface name="feedback_age_ms"/>
+      <state_interface name="feedback_valid"/>
+      <state_interface name="stm32_tick_ms"/>
+      <state_interface name="feedback_sequence"/>
     </joint>
 
   </ros2_control>

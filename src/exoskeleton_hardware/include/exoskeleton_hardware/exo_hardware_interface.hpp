@@ -61,6 +61,18 @@ struct __attribute__((packed)) MotorFeedback
   int32_t  multi_turn;     // 多圈绝对角度 (0.01 deg/LSB)
 };
 
+// 反馈帧尾部的采集时序和诊断扩展。旧固件没有该尾部时 extension_valid=false，
+// 位置/速度/iq 的基础协议仍可继续使用。
+struct FeedbackMetadata
+{
+  bool extension_valid{false};
+  uint16_t sequence{0};
+  uint32_t stm32_tick_ms{0};
+  std::array<int8_t, NUM_JOINTS> temperature_c{};
+  std::array<uint8_t, NUM_JOINTS> error_state{};
+  std::array<uint8_t, NUM_JOINTS> feedback_age_ms{};
+};
+
 // ===================== 接收状态机 =====================
 
 enum class RxState : uint8_t
@@ -116,7 +128,8 @@ private:
   bool send_enable_cmd(uint8_t motor_id);
 
   // 接收一帧反馈数据
-  bool recv_feedback(std::vector<MotorFeedback> & motors);
+  bool recv_feedback(
+    std::vector<MotorFeedback> & motors, FeedbackMetadata & metadata);
 
   // ---- 热插拔 ----
   // 扫描 /dev/ttyACM* 找到 STM32 设备, 验证后返回路径
@@ -170,6 +183,12 @@ private:
   std::array<double, NUM_JOINTS> hw_positions_{};   // rad (输出轴单圈编码器解绕+软件归零)
   std::array<double, NUM_JOINTS> hw_velocities_{};  // rad/s (输出轴)
   std::array<double, NUM_JOINTS> hw_efforts_{};     // A (电机 iq 电流反馈)
+  std::array<double, NUM_JOINTS> hw_temperatures_{};       // degC
+  std::array<double, NUM_JOINTS> hw_error_states_{};       // 电机错误位掩码
+  std::array<double, NUM_JOINTS> hw_feedback_ages_ms_{};   // STM32 观测的数据年龄
+  std::array<double, NUM_JOINTS> hw_feedback_valid_{};     // 0/1
+  std::array<double, NUM_JOINTS> hw_stm32_ticks_ms_{};     // 每关节重复同一帧采集时刻
+  std::array<double, NUM_JOINTS> hw_feedback_sequences_{}; // 每关节重复同一帧序号
 
   // ---- 单圈编码器解绕 + 软件归零 ----
   std::array<int32_t, NUM_JOINTS> enc_raw_prev_{};    // 上一帧原始编码器 (首次为 -1)
@@ -179,6 +198,7 @@ private:
 
   // ---- 命令接口存储 ----
   std::array<double, NUM_JOINTS> hw_commands_{};    // 上层力矩指令
+  std::array<double, NUM_JOINTS> hw_zero_position_commands_{};  // 脉冲: 当前编码器位置设为零
 
   // ---- 关节名称 ----
   std::vector<std::string> joint_names_;

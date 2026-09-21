@@ -39,8 +39,12 @@ CTExoStateNode::CTExoStateNode() : Node("ct_exo_state_node") {
       imu_topic, rclcpp::SensorDataQoS(),
       std::bind(&CTExoStateNode::imuCallback, this, std::placeholders::_1));
 
+  // 状态估计必须使用编码器实测值，而不是 CPG 期望轨迹。话题做成参数，
+  // 便于 rosbag 回放时重映射，但默认接 ros2_control 的 joint_state_broadcaster。
+  std::string joint_state_topic =
+      this->declare_parameter("joint_state_topic", "/joint_states");
   joint_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
-      "/cpg/joint_ref", rclcpp::SensorDataQoS(),
+      joint_state_topic, rclcpp::SensorDataQoS(),
       std::bind(&CTExoStateNode::jointStateCallback, this,
                 std::placeholders::_1));
 

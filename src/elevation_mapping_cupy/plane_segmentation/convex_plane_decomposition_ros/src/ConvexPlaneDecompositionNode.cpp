@@ -1,23 +1,19 @@
 #include "convex_plane_decomposition_ros/ConvexPlaneDecompositionRos.h"
 
-#include <ros/ros.h>
+#include <exception>
+#include <memory>
+
+#include <rclcpp/rclcpp.hpp>
 
 int main(int argc, char** argv) {
-  ros::init(argc, argv, "convex_plane_decomposition_ros");
-  ros::NodeHandle nodeHandle("~");
-
-  double frequency;
-  if (!nodeHandle.getParam("frequency", frequency)) {
-    ROS_ERROR("[ConvexPlaneDecompositionNode] Could not read parameter `frequency`.");
+  rclcpp::init(argc, argv);
+  try {
+    rclcpp::spin(std::make_shared<convex_plane_decomposition::ConvexPlaneExtractionROS>());
+  } catch (const std::exception& exception) {
+    RCLCPP_FATAL(rclcpp::get_logger("plane_segmentation_node"), "%s", exception.what());
+    rclcpp::shutdown();
     return 1;
   }
-
-  convex_plane_decomposition::ConvexPlaneExtractionROS convex_plane_decomposition_ros(nodeHandle);
-
-  ros::Rate rate(frequency);
-  while (ros::ok()) {
-    ros::spinOnce();
-    rate.sleep();
-  }
+  rclcpp::shutdown();
   return 0;
 }

@@ -137,10 +137,10 @@ def launch_setup(context):
     node2 = Node(
         package="rviz2",
         executable="rviz2",
-        condition=IfCondition(LaunchConfiguration("rviz_enable")),
+        condition=IfCondition(get_val("rviz_enable")),
         arguments=[
-            "-d"
-            + get_val("rviz_config_path"),
+            "-d",
+            get_val("rviz_config_path"),
             "--ros-args",
             "--log-level",
             "warn",

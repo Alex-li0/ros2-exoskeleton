@@ -18,6 +18,18 @@ install(DIRECTORY launch/
 install(DIRECTORY config/
   DESTINATION share/${PROJECT_NAME}/config
 )
+
+install(PROGRAMS
+  scripts/check_recording_topics.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME check_recording_topics
+)
+
+install(PROGRAMS
+  scripts/verify_state_estimation_bag.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME verify_state_estimation_bag
+)
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights

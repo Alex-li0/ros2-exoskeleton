@@ -1,0 +1,61 @@
+# 阻抗调参数据集：传感器源数据之外，控制参考量和诊断量也必须存在。
+required_topics:
+  /camera/gyro/sample:
+    type: sensor_msgs/msg/Imu
+    min_rate_hz: 300.0
+  /camera/accel/sample:
+    type: sensor_msgs/msg/Imu
+    min_rate_hz: 180.0
+  /camera/infra1/image_rect_raw:
+    type: sensor_msgs/msg/Image
+    min_rate_hz: 20.0
+  /camera/infra2/image_rect_raw:
+    type: sensor_msgs/msg/Image
+    min_rate_hz: 20.0
+  /camera/depth/image_rect_raw:
+    type: sensor_msgs/msg/Image
+    min_rate_hz: 20.0
+  /camera/depth/color/points:
+    type: sensor_msgs/msg/PointCloud2
+    min_rate_hz: 5.0
+  /joint_states:
+    type: sensor_msgs/msg/JointState
+    min_rate_hz: 50.0
+  /dynamic_joint_states:
+    type: control_msgs/msg/DynamicJointState
+    min_rate_hz: 50.0
+  /cpg/joint_ref:
+    type: sensor_msgs/msg/JointState
+    min_rate_hz: 100.0
+  /cpg/state:
+    type: std_msgs/msg/String
+    min_rate_hz: 0.0
+  /impedance/debug:
+    type: sensor_msgs/msg/JointState
+    min_rate_hz: 100.0
+  /impedance/timing:
+    type: std_msgs/msg/Float64MultiArray
+    min_rate_hz: 100.0
+  /tf:
+    type: tf2_msgs/msg/TFMessage
+    min_rate_hz: 1.0
+  /tf_static:
+    type: tf2_msgs/msg/TFMessage
+    min_rate_hz: 0.0
+
+optional_topics:
+  /camera/imu: sensor_msgs/msg/Imu
+  /camera/infra1/camera_info: sensor_msgs/msg/CameraInfo
+  /camera/infra2/camera_info: sensor_msgs/msg/CameraInfo
+  /camera/depth/camera_info: sensor_msgs/msg/CameraInfo
+  /imu/pelvis: sensor_msgs/msg/Imu
+  /cpg/debug: terrain_adaptive_cpg/msg/CPGDebug
+  /cpg/switch_debug: std_msgs/msg/Float64MultiArray
+  /cpg/state_cmd: std_msgs/msg/String
+  /cpg/gait_mode: std_msgs/msg/String
+  /position_controller/commands: std_msgs/msg/Float64MultiArray
+  /experiment/event: std_msgs/msg/String
+  /diagnostics: diagnostic_msgs/msg/DiagnosticArray
+  /parameter_events: rcl_interfaces/msg/ParameterEvent
+  /rosout: rcl_interfaces/msg/Log
+  /robot_description: std_msgs/msg/String

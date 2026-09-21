@@ -1,0 +1,57 @@
+# 默认调试数据集：只要求可重复生成算法输出的源数据。
+required_topics:
+  /camera/gyro/sample:
+    type: sensor_msgs/msg/Imu
+    min_rate_hz: 300.0
+  /camera/accel/sample:
+    type: sensor_msgs/msg/Imu
+    min_rate_hz: 180.0
+  /camera/infra1/image_rect_raw:
+    type: sensor_msgs/msg/Image
+    min_rate_hz: 20.0
+  /camera/infra1/camera_info:
+    type: sensor_msgs/msg/CameraInfo
+    min_rate_hz: 20.0
+  /camera/infra2/image_rect_raw:
+    type: sensor_msgs/msg/Image
+    min_rate_hz: 20.0
+  /camera/infra2/camera_info:
+    type: sensor_msgs/msg/CameraInfo
+    min_rate_hz: 20.0
+  /camera/depth/image_rect_raw:
+    type: sensor_msgs/msg/Image
+    min_rate_hz: 20.0
+  /camera/depth/camera_info:
+    type: sensor_msgs/msg/CameraInfo
+    min_rate_hz: 20.0
+  /camera/depth/color/points:
+    type: sensor_msgs/msg/PointCloud2
+    min_rate_hz: 5.0
+  /joint_states:
+    type: sensor_msgs/msg/JointState
+    min_rate_hz: 50.0
+  /dynamic_joint_states:
+    type: control_msgs/msg/DynamicJointState
+    min_rate_hz: 50.0
+  /tf:
+    type: tf2_msgs/msg/TFMessage
+    min_rate_hz: 1.0
+  /tf_static:
+    type: tf2_msgs/msg/TFMessage
+    min_rate_hz: 0.0
+
+optional_topics:
+  # 驱动融合后的IMU便于直接回放当前OpenVINS，原始gyro/accel仍是验收必需项。
+  /camera/imu: sensor_msgs/msg/Imu
+  /camera/gyro/metadata: realsense2_camera_msgs/msg/Metadata
+  /camera/accel/metadata: realsense2_camera_msgs/msg/Metadata
+  /camera/infra1/metadata: realsense2_camera_msgs/msg/Metadata
+  /camera/infra2/metadata: realsense2_camera_msgs/msg/Metadata
+  /camera/depth/metadata: realsense2_camera_msgs/msg/Metadata
+  # 当前仓库未发现该独立盆腔IMU的发布节点；接入后应提升为required。
+  /imu/pelvis: sensor_msgs/msg/Imu
+  /robot_description: std_msgs/msg/String
+  /experiment/event: std_msgs/msg/String
+  /diagnostics: diagnostic_msgs/msg/DiagnosticArray
+  /parameter_events: rcl_interfaces/msg/ParameterEvent
+  /rosout: rcl_interfaces/msg/Log

@@ -185,8 +185,10 @@ std::string ExoHardwareInterface::find_stm32_port()
               if (calc != rx_buf[rx_len]) break;
               if (rx_cmd != usb_protocol::CMD_MOTOR_RAW_FEEDBACK) break;
               if (rx_len < 2 || rx_buf[0] == 0 || rx_buf[1] == 0) break;
-              uint8_t expected_len = 2 + rx_buf[0] * rx_buf[1] * 10;
-              if (rx_len != expected_len) break;
+              // 旧固件只有基础反馈，新固件会在其后附加诊断尾部。
+              // 自动识别只要求基础字段完整，避免拒绝向后兼容的扩展帧。
+              uint8_t minimum_len = 2 + rx_buf[0] * rx_buf[1] * 10;
+              if (rx_len < minimum_len) break;
               if (first_bus < 0) {
                 first_bus = rx_buf[0]; first_motor = rx_buf[1];
               } else if (rx_buf[0] != first_bus || rx_buf[1] != first_motor) {
@@ -418,6 +420,7 @@ hardware_interface::CallbackReturn ExoHardwareInterface::on_configure(
   hw_velocities_.fill(0.0);
   hw_efforts_.fill(0.0);
   hw_commands_.fill(0.0);
+  hw_zero_position_commands_.fill(0.0);
   enc_raw_prev_.fill(-1);
   enc_continuous_.fill(0);
   enc_zero_offset_.fill(0);
@@ -457,6 +460,7 @@ hardware_interface::CallbackReturn ExoHardwareInterface::on_activate(
   enc_continuous_.fill(0);
   enc_zero_offset_.fill(0);
   zero_captured_ = false;
+  hw_zero_position_commands_.fill(0.0);
 
   // 若未连接, 再尝试一次
   if (!connected_ && !use_mock_) {
@@ -492,6 +496,7 @@ hardware_interface::CallbackReturn ExoHardwareInterface::on_deactivate(
   }
 
   hw_commands_.fill(0.0);
+  hw_zero_position_commands_.fill(0.0);
   RCLCPP_INFO(rclcpp::get_logger("ExoHardwareInterface"), "硬件已去激活，力矩归零");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -510,6 +515,18 @@ ExoHardwareInterface::export_state_interfaces()
       joint_names_[i], hardware_interface::HW_IF_VELOCITY, &hw_velocities_[i]);
     interfaces.emplace_back(
       joint_names_[i], hardware_interface::HW_IF_EFFORT, &hw_efforts_[i]);
+    interfaces.emplace_back(
+      joint_names_[i], "temperature", &hw_temperatures_[i]);
+    interfaces.emplace_back(
+      joint_names_[i], "error_state", &hw_error_states_[i]);
+    interfaces.emplace_back(
+      joint_names_[i], "feedback_age_ms", &hw_feedback_ages_ms_[i]);
+    interfaces.emplace_back(
+      joint_names_[i], "feedback_valid", &hw_feedback_valid_[i]);
+    interfaces.emplace_back(
+      joint_names_[i], "stm32_tick_ms", &hw_stm32_ticks_ms_[i]);
+    interfaces.emplace_back(
+      joint_names_[i], "feedback_sequence", &hw_feedback_sequences_[i]);
   }
 
   return interfaces;
@@ -523,6 +540,10 @@ ExoHardwareInterface::export_command_interfaces()
   for (size_t i = 0; i < NUM_JOINTS; ++i) {
     interfaces.emplace_back(
       joint_names_[i], hardware_interface::HW_IF_EFFORT, &hw_commands_[i]);
+  }
+  for (size_t i = 0; i < NUM_JOINTS; ++i) {
+    interfaces.emplace_back(
+      joint_names_[i], "zero_position", &hw_zero_position_commands_[i]);
   }
 
   return interfaces;
@@ -616,9 +637,11 @@ bool ExoHardwareInterface::configure_serial()
 //   每马达 10 字节
 
 static bool parse_feedback_data(const uint8_t * data, uint8_t len,
-                                std::vector<MotorFeedback> & motors)
+                                std::vector<MotorFeedback> & motors,
+                                FeedbackMetadata & metadata)
 {
   motors.clear();
+  metadata = FeedbackMetadata{};
   if (len < 2) return false;
 
   uint8_t bus_count = data[0];
@@ -639,6 +662,30 @@ static bool parse_feedback_data(const uint8_t * data, uint8_t len,
     m.multi_turn = *reinterpret_cast<const int32_t *>(ptr);       ptr += 4;
   }
 
+  // 可选诊断尾部 (18B): sequence(u16) | stm32_tick_ms(u32) |
+  // [temperature(i8), error(u8), age_ms(u8)] x 4。
+  // 基础 10B/电机布局保持不变，因此仍兼容没有尾部的旧固件。
+  constexpr size_t extension_size = 18;
+  const size_t extension_offset = 2 + total_motors * 10;
+  if (total_motors == NUM_JOINTS &&
+      len >= extension_offset + extension_size)
+  {
+    const uint8_t * ext = data + extension_offset;
+    metadata.extension_valid = true;
+    metadata.sequence = static_cast<uint16_t>(ext[0]) |
+      (static_cast<uint16_t>(ext[1]) << 8);
+    metadata.stm32_tick_ms = static_cast<uint32_t>(ext[2]) |
+      (static_cast<uint32_t>(ext[3]) << 8) |
+      (static_cast<uint32_t>(ext[4]) << 16) |
+      (static_cast<uint32_t>(ext[5]) << 24);
+    for (size_t i = 0; i < NUM_JOINTS; ++i) {
+      const size_t offset = 6 + i * 3;
+      metadata.temperature_c[i] = static_cast<int8_t>(ext[offset]);
+      metadata.error_state[i] = ext[offset + 1];
+      metadata.feedback_age_ms[i] = ext[offset + 2];
+    }
+  }
+
   return true;
 }
 
@@ -648,9 +695,11 @@ static bool parse_feedback_data(const uint8_t * data, uint8_t len,
 // 返回 true: 成功解析一帧反馈数据
 // 返回 false: 串口无更多数据 (read 返回 0/EAGAIN)
 
-bool ExoHardwareInterface::recv_feedback(std::vector<MotorFeedback> & motors)
+bool ExoHardwareInterface::recv_feedback(
+  std::vector<MotorFeedback> & motors, FeedbackMetadata & metadata)
 {
   motors.clear();
+  metadata = FeedbackMetadata{};
   uint8_t byte;
 
   while (true) {
@@ -703,7 +752,7 @@ bool ExoHardwareInterface::recv_feedback(std::vector<MotorFeedback> & motors)
             continue;
           }
 
-          if (parse_feedback_data(data_ptr, expected_len_, motors)) {
+          if (parse_feedback_data(data_ptr, expected_len_, motors, metadata)) {
             return true;
           }
         }
@@ -715,11 +764,15 @@ bool ExoHardwareInterface::recv_feedback(std::vector<MotorFeedback> & motors)
 // ===================== read() =====================
 
 hardware_interface::return_type ExoHardwareInterface::read(
-  const rclcpp::Time & time, const rclcpp::Duration & /*period*/)
+  const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
   if (use_mock_) {
     return hardware_interface::return_type::OK;
   }
+
+  // 热插拔计时统一使用成员clock_，避免controller_manager传入的ROS时钟
+  // 与系统时钟相减导致异常。
+  const rclcpp::Time now = clock_.now();
 
   // 断线时尝试重连
   if (!connected_) {
@@ -730,7 +783,7 @@ hardware_interface::return_type ExoHardwareInterface::read(
         clock_, 5000,
         "等待 STM32 连接 (端口模式: %s)... 已等待 %.0f 秒",
         serial_port_.c_str(),
-        (time - last_data_time_).seconds());
+        (now - last_data_time_).seconds());
       return hardware_interface::return_type::OK;
     }
   }
@@ -742,13 +795,19 @@ hardware_interface::return_type ExoHardwareInterface::read(
 
   // 持续读取直到串口缓冲区清空
   std::vector<MotorFeedback> motors;
+  FeedbackMetadata metadata;
   bool got_data = false;
-  while (recv_feedback(motors)) {
+  bool got_complete_frame = false;
+  while (recv_feedback(motors, metadata)) {
     got_data = true;
+    bool frame_complete = true;
     for (size_t i = 0; i < NUM_JOINTS; ++i) {
       // 反馈帧按电机号升序 [motor1..motor4], 按 motor_id_ 取对应反馈
       const size_t mi = static_cast<size_t>(motor_id_[i] - 1);
-      if (mi >= motors.size()) { continue; }  // 该关节的电机不在反馈帧中
+      if (mi >= motors.size()) {
+        frame_complete = false;
+        continue;
+      }
       const MotorFeedback & m = motors[mi];
 
       // 位置反馈: 输出轴单圈编码器 (0~65535 = 0~360°, 手册 §2.6, 始终有效)。
@@ -780,22 +839,35 @@ hardware_interface::return_type ExoHardwareInterface::read(
         * usb_protocol::DPS_TO_RADS);
 
       hw_efforts_[i] = joint_sign_[i] * static_cast<double>(m.iq);
+
+      if (metadata.extension_valid) {
+        hw_temperatures_[i] = static_cast<double>(metadata.temperature_c[mi]);
+        hw_error_states_[i] = static_cast<double>(metadata.error_state[mi]);
+        hw_feedback_ages_ms_[i] = static_cast<double>(metadata.feedback_age_ms[mi]);
+        hw_feedback_valid_[i] =
+          metadata.feedback_age_ms[mi] < 255U ? 1.0 : 0.0;
+        hw_stm32_ticks_ms_[i] = static_cast<double>(metadata.stm32_tick_ms);
+        hw_feedback_sequences_[i] = static_cast<double>(metadata.sequence);
+      }
     }
+    got_complete_frame = got_complete_frame || frame_complete;
   }
 
   if (got_data) {
-    last_data_time_ = time;
+    last_data_time_ = now;
   }
 
   // 首个有效反馈帧: 确认零位已捕获
-  if (got_data && !zero_captured_)
+  if (got_complete_frame && !zero_captured_)
   {
     zero_captured_ = true;
-    RCLCPP_INFO(rclcpp::get_logger("ExoHardwareInterface"), "已捕获编码器零位 (软件归零)");
+    RCLCPP_INFO(
+      rclcpp::get_logger("ExoHardwareInterface"),
+      "已在上位机捕获编码器零位 (未修改STM32或电机参数)");
   }
 
   // 断线检测: 超过 data_timeout_ 无数据
-  if ((time - last_data_time_).seconds() > data_timeout_) {
+  if ((now - last_data_time_).seconds() > data_timeout_) {
     handle_disconnect();
   }
 
@@ -814,6 +886,34 @@ hardware_interface::return_type ExoHardwareInterface::write(
   // 未连接时静默跳过
   if (!connected_ || fd_ < 0) {
     return hardware_interface::return_type::OK;
+  }
+
+  const bool zero_requested = std::any_of(
+    hw_zero_position_commands_.begin(), hw_zero_position_commands_.end(),
+    [](double value) {return value > 0.5;});
+  if (zero_requested)
+  {
+    const bool feedback_ready = zero_captured_ && std::all_of(
+      enc_raw_prev_.begin(), enc_raw_prev_.end(),
+      [](int32_t value) {return value >= 0;});
+    if (feedback_ready)
+    {
+      for (size_t i = 0; i < NUM_JOINTS; ++i)
+      {
+        enc_zero_offset_[i] = enc_continuous_[i] + enc_raw_prev_[i];
+        hw_positions_[i] = 0.0;
+      }
+      RCLCPP_INFO(
+        rclcpp::get_logger("ExoHardwareInterface"),
+        "已更新上位机编码器偏置，四关节当前位置为0 (未修改下位机)");
+    }
+    else
+    {
+      RCLCPP_WARN(
+        rclcpp::get_logger("ExoHardwareInterface"),
+        "忽略手动清零: 尚未获得四关节完整编码器反馈");
+    }
+    hw_zero_position_commands_.fill(0.0);
   }
 
   // 对每个关节发送力矩控制指令

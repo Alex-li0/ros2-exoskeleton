@@ -63,6 +63,14 @@ install(FILES scripts/plot_control_monitor.py
               GROUP_READ GROUP_EXECUTE
               WORLD_READ WORLD_EXECUTE
 )
+# 只读关节映射检查 (ros2 run exoskeleton_hardware check_joint_mapping)
+install(FILES scripts/check_joint_mapping.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME check_joint_mapping
+  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+              GROUP_READ GROUP_EXECUTE
+              WORLD_READ WORLD_EXECUTE
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
