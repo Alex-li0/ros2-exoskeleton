@@ -43,6 +43,9 @@ install(
   DIRECTORY urdf config launch
   DESTINATION share/${PROJECT_NAME}
 )
+install(FILES README_ankle_encoder.md
+  DESTINATION share/${PROJECT_NAME}
+)
 # 可执行脚本 (ros2 run exoskeleton_hardware test_motor_control)
 install(FILES scripts/test_motor_control.py
   DESTINATION lib/${PROJECT_NAME}
@@ -67,6 +70,14 @@ install(FILES scripts/plot_control_monitor.py
 install(FILES scripts/check_joint_mapping.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME check_joint_mapping
+  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+              GROUP_READ GROUP_EXECUTE
+              WORLD_READ WORLD_EXECUTE
+)
+# 只读踝编码器机械零位标定
+install(FILES scripts/calibrate_ankle_zero.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME calibrate_ankle_zero
   PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
               GROUP_READ GROUP_EXECUTE
               WORLD_READ WORLD_EXECUTE

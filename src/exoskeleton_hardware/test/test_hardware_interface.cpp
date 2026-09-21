@@ -90,6 +90,11 @@ TEST(UsbProtocolTest, EncoderResolution)
   EXPECT_EQ(exoskeleton_hardware::usb_protocol::ENCODER_RESOLUTION, 65536u);
 }
 
+TEST(UsbProtocolTest, AnkleEncoderResolution)
+{
+  EXPECT_EQ(exoskeleton_hardware::usb_protocol::ANKLE_ENCODER_RESOLUTION, 4096u);
+}
+
 TEST(UsbProtocolTest, MultiTurnResolution)
 {
   // 多圈角度: 0.01 deg/LSB
@@ -117,6 +122,11 @@ TEST(MotorFeedbackTest, FieldOffsets)
   EXPECT_EQ(reinterpret_cast<uint8_t *>(&m.speed_dps) - base, 2);
   EXPECT_EQ(reinterpret_cast<uint8_t *>(&m.iq) - base, 4);
   EXPECT_EQ(reinterpret_cast<uint8_t *>(&m.multi_turn) - base, 6);
+}
+
+TEST(AnkleFeedbackTest, Size)
+{
+  EXPECT_EQ(sizeof(exoskeleton_hardware::AnkleFeedback), 4u);
 }
 
 // ===================== 单位转换测试 =====================
@@ -155,6 +165,16 @@ TEST(UnitConversionTest, ZeroConversion)
   EXPECT_DOUBLE_EQ(0.0 * 0.01 * M_PI / 180.0, 0.0);
 }
 
+TEST(UnitConversionTest, AnkleCircularZeroCorrection)
+{
+  using exoskeleton_hardware::ExoHardwareInterface;
+  EXPECT_EQ(ExoHardwareInterface::ankle_count_from_zero(100, 100), 0);
+  EXPECT_EQ(ExoHardwareInterface::ankle_count_from_zero(110, 100), 10);
+  EXPECT_EQ(ExoHardwareInterface::ankle_count_from_zero(90, 100), -10);
+  EXPECT_EQ(ExoHardwareInterface::ankle_count_from_zero(5, 4090), 11);
+  EXPECT_EQ(ExoHardwareInterface::ankle_count_from_zero(4090, 5), -11);
+}
+
 // ===================== 帧布局测试 =====================
 
 TEST(FrameLayoutTest, SetTargetDataSize)
@@ -176,6 +196,58 @@ TEST(FrameLayoutTest, FeedbackPerMotorSize)
 {
   // encoder(u16) + speed(i16) + iq(i16) + multi_turn(i32) = 10 bytes
   EXPECT_EQ(sizeof(uint16_t) + sizeof(int16_t) + sizeof(int16_t) + sizeof(int32_t), 10u);
+}
+
+TEST(FrameLayoutTest, ParsesCurrentLen68AnkleExtension)
+{
+  std::array<uint8_t, 68> data{};
+  data[0] = 2;
+  data[1] = 2;
+  // 42B motor prefix, then 18B diagnostics. Put a recognizable STM32 tick in it.
+  data[44] = 0x78;
+  data[45] = 0x56;
+  data[46] = 0x34;
+  data[47] = 0x12;
+  // Left ankle at offset 60, right ankle at offset 64.
+  data[60] = 1;
+  data[61] = 0x01;
+  data[62] = 0x34;
+  data[63] = 0x02;
+  data[64] = 2;
+  data[65] = 0x03;
+  data[66] = 0xCD;
+  data[67] = 0x0A;
+
+  std::vector<exoskeleton_hardware::MotorFeedback> motors;
+  exoskeleton_hardware::FeedbackMetadata metadata;
+  ASSERT_TRUE(
+    exoskeleton_hardware::ExoHardwareInterface::parse_feedback_data(
+      data.data(), data.size(), motors, metadata));
+  ASSERT_EQ(motors.size(), 4u);
+  ASSERT_TRUE(metadata.extension_valid);
+  ASSERT_TRUE(metadata.ankle_extension_valid);
+  EXPECT_EQ(metadata.stm32_tick_ms, 0x12345678u);
+  EXPECT_EQ(metadata.ankles[0].node_id, 1);
+  EXPECT_EQ(metadata.ankles[0].flags, 0x01);
+  EXPECT_EQ(metadata.ankles[0].raw_count, 0x0234);
+  EXPECT_EQ(metadata.ankles[1].node_id, 2);
+  EXPECT_EQ(metadata.ankles[1].flags, 0x03);
+  EXPECT_EQ(metadata.ankles[1].raw_count, 0x0ACD);
+}
+
+TEST(FrameLayoutTest, KeepsLegacyLen42Compatible)
+{
+  std::array<uint8_t, 42> data{};
+  data[0] = 2;
+  data[1] = 2;
+  std::vector<exoskeleton_hardware::MotorFeedback> motors;
+  exoskeleton_hardware::FeedbackMetadata metadata;
+  ASSERT_TRUE(
+    exoskeleton_hardware::ExoHardwareInterface::parse_feedback_data(
+      data.data(), data.size(), motors, metadata));
+  EXPECT_EQ(motors.size(), 4u);
+  EXPECT_FALSE(metadata.extension_valid);
+  EXPECT_FALSE(metadata.ankle_extension_valid);
 }
 
 // ===================== NUM_JOINTS 测试 =====================

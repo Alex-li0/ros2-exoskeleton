@@ -50,6 +50,15 @@ required_topics:
     type: tf2_msgs/msg/TFMessage
     min_rate_hz: 0.0
 
+# 录制前不只检查话题存在，还要确认踝编码器已真正进入消息。
+# /joint_states 用于 RViz/通用关节算法；/dynamic_joint_states 保留原始计数和有效性。
+required_joint_content:
+  /joint_states:
+    joints: [left_ankle, right_ankle]
+  /dynamic_joint_states:
+    joints: [left_ankle, right_ankle]
+    interfaces: [position, velocity, raw_count, node_id, feedback_valid, stale]
+
 optional_topics:
   # 原始 IMU 分流对重新同步、重新标定有用。
   /camera/gyro/sample: sensor_msgs/msg/Imu

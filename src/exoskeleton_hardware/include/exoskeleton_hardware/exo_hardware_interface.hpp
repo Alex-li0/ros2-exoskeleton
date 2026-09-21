@@ -18,6 +18,7 @@ namespace exoskeleton_hardware
 {
 
 static constexpr size_t NUM_JOINTS = 4;  // 左/右 hip3 + knee
+static constexpr size_t NUM_ANKLE_ENCODERS = 2;  // 左/右被动踝关节
 
 // ===================== USB 串口协议常量 =====================
 // STM32 ↔ PC 通信协议, 参考 usb_protocol_and_test_report.pdf
@@ -44,6 +45,9 @@ constexpr uint8_t MODE_TORQUE   = 2;  // 力矩控制, value = iq (float)
 // 编码器分辨率: 16-bit 单圈
 constexpr uint32_t ENCODER_RESOLUTION = 65536;
 
+// BRT25-C0M4096-RT1 单圈编码器分辨率
+constexpr uint32_t ANKLE_ENCODER_RESOLUTION = 4096;
+
 // 多圈角度分辨率: 0.01 deg/LSB
 constexpr double MULTI_TURN_TO_DEG = 0.01;
 
@@ -61,6 +65,13 @@ struct __attribute__((packed)) MotorFeedback
   int32_t  multi_turn;     // 多圈绝对角度 (0.01 deg/LSB)
 };
 
+struct __attribute__((packed)) AnkleFeedback
+{
+  uint8_t node_id;         // CAN 节点 ID：当前左=1，右=2
+  uint8_t flags;           // bit0=data_valid, bit1=stale
+  uint16_t raw_count;      // 单圈原始计数 0..4095
+};
+
 // 反馈帧尾部的采集时序和诊断扩展。旧固件没有该尾部时 extension_valid=false，
 // 位置/速度/iq 的基础协议仍可继续使用。
 struct FeedbackMetadata
@@ -71,6 +82,8 @@ struct FeedbackMetadata
   std::array<int8_t, NUM_JOINTS> temperature_c{};
   std::array<uint8_t, NUM_JOINTS> error_state{};
   std::array<uint8_t, NUM_JOINTS> feedback_age_ms{};
+  bool ankle_extension_valid{false};
+  std::array<AnkleFeedback, NUM_ANKLE_ENCODERS> ankles{};
 };
 
 // ===================== 接收状态机 =====================
@@ -116,6 +129,14 @@ public:
   // XOR 校验 (public for testing): chk = CMD ^ LEN ^ data[0] ^ ... ^ data[N-1]
   static uint8_t calc_checksum(uint8_t cmd, uint8_t len, const uint8_t * data);
 
+  // 解析 42/60/68 字节兼容布局（public for testing）。
+  static bool parse_feedback_data(
+    const uint8_t * data, uint8_t len,
+    std::vector<MotorFeedback> & motors, FeedbackMetadata & metadata);
+
+  // 按单圈最短距离计算相对机械零位的带符号计数。
+  static int32_t ankle_count_from_zero(uint16_t raw_count, uint16_t zero_offset);
+
 private:
   bool open_serial(const std::string & port);
   void close_serial();
@@ -157,6 +178,12 @@ private:
   bool use_mock_{false};         // 仿真模式
   std::array<int8_t, NUM_JOINTS> joint_sign_{};  // 关节方向符号 ±1 (来自 exo_motor_map.yaml)
   std::array<uint8_t, NUM_JOINTS> motor_id_{};   // 关节→电机ID (来自 exo_motor_map.yaml)
+  std::array<std::string, NUM_ANKLE_ENCODERS> ankle_names_{
+    "left_ankle", "right_ankle"};
+  std::array<uint8_t, NUM_ANKLE_ENCODERS> ankle_node_id_{{1, 2}};
+  std::array<int8_t, NUM_ANKLE_ENCODERS> ankle_sign_{{1, 1}};
+  std::array<uint16_t, NUM_ANKLE_ENCODERS> ankle_zero_offset_{{0, 0}};
+  double ankle_velocity_filter_alpha_{0.2};
 
   // 节流日志用时钟 (成员避免 RT 线程中临时 Clock 悬垂/堆分配)
   rclcpp::Clock clock_;
@@ -189,6 +216,14 @@ private:
   std::array<double, NUM_JOINTS> hw_feedback_valid_{};     // 0/1
   std::array<double, NUM_JOINTS> hw_stm32_ticks_ms_{};     // 每关节重复同一帧采集时刻
   std::array<double, NUM_JOINTS> hw_feedback_sequences_{}; // 每关节重复同一帧序号
+  std::array<double, NUM_ANKLE_ENCODERS> ankle_positions_{};      // rad, 零偏/方向修正后
+  std::array<double, NUM_ANKLE_ENCODERS> ankle_velocities_{};     // rad/s, 上位机差分
+  std::array<double, NUM_ANKLE_ENCODERS> ankle_raw_counts_{};     // 0..4095
+  std::array<double, NUM_ANKLE_ENCODERS> ankle_node_ids_{};
+  std::array<double, NUM_ANKLE_ENCODERS> ankle_feedback_valid_{}; // 0/1
+  std::array<double, NUM_ANKLE_ENCODERS> ankle_stale_{};          // 0/1
+  std::array<int32_t, NUM_ANKLE_ENCODERS> ankle_raw_prev_{{-1, -1}};
+  std::array<uint32_t, NUM_ANKLE_ENCODERS> ankle_tick_prev_{};
 
   // ---- 单圈编码器解绕 + 软件归零 ----
   std::array<int32_t, NUM_JOINTS> enc_raw_prev_{};    // 上一帧原始编码器 (首次为 -1)

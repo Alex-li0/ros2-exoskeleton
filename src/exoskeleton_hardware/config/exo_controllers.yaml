@@ -34,6 +34,8 @@ joint_state_broadcaster:
       - left_knee
       - right_hip3
       - right_knee
+      - left_ankle
+      - right_ankle
 
 # ---------------- 阻抗控制器参数 ----------------
 exo_impedance_controller:
@@ -97,3 +99,16 @@ joint_motor_map:
     joints: [left_hip3, left_knee, right_hip3, right_knee]
     motor_id: [1, 2, 3, 4]
     joint_sign: [1, -1, -1, 1]
+
+# ---------------- 左右踝 BRT25 编码器映射 + 机械零偏 ----------------
+# 顺序必须为 [left_ankle, right_ankle]，与 STM32 0x15 踝尾部一致。
+# zero_offset_counts 是脚掌位于定义的机械零位时的原始计数（0..4095）。
+# 更新后重启 launch 生效；上位机按单圈最短距离进行环绕修正。
+# joint_sign 只修正踝角显示/数据方向，不会发送任何电机指令。
+ankle_encoder_map:
+  ros__parameters:
+    joints: [left_ankle, right_ankle]
+    node_id: [1, 2]
+    joint_sign: [1, -1]
+    # 尚未做机械零位实测；先用 calibrate_ankle_zero 获取后替换。
+    zero_offset_counts: [2800, 2000]

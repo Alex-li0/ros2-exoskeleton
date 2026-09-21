@@ -364,7 +364,7 @@
   </link>
   <joint
     name="left_ankle"
-    type="fixed">
+    type="revolute">
     <origin
       xyz="0.345999999999997 0.000100000000003042 0.017"
       rpy="0 0 0" />
@@ -372,6 +372,8 @@
       link="left_calf_link" />
     <child
       link="left_foot" />
+    <axis xyz="0 0 1" />
+    <limit lower="-0.5236" upper="0.5236" effort="0" velocity="10" />
   </joint>
   <link
     name="right_hip1_link">
@@ -684,7 +686,7 @@
   </link>
   <joint
     name="right_ankle"
-    type="fixed">
+    type="revolute">
     <origin
       xyz="0.346000000000043 9.99999997232381E-05 -0.0170000000012193"
       rpy="0 0 0" />
@@ -692,6 +694,8 @@
       link="right_calf_link" />
     <child
       link="right_foot_link" />
+    <axis xyz="0 0 -1" />
+    <limit lower="-0.5236" upper="0.5236" effort="0" velocity="10" />
   </joint>
 
 <ros2_control name="ExoskeletonSystem" type="system">
@@ -706,6 +710,8 @@
            控制器 yaml 现为 80 → 生效上限 = 80; 此值只作硬件安全兜底 -->
       <param name="torque_limit">200.0</param>
       <param name="current_limit">20.0</param>
+      <!-- 踝角速度由上位机差分后一阶低通；(0,1]，越小滤波越强 -->
+      <param name="ankle_velocity_filter_alpha">0.2</param>
       <!-- 真机测试: false 打开串口; 无硬件调试时改回 true 跳过串口 -->
       <param name="use_mock">false</param>
       <!-- 关节↔电机映射在 exo_controllers.yaml 的 joint_motor_map 段
@@ -770,6 +776,25 @@
       <state_interface name="stm32_tick_ms"/>
       <state_interface name="feedback_sequence"/>
     </joint>
+
+    <!-- 被动踝关节只导出状态，无 command interface，不会使能或施加力矩。 -->
+    <sensor name="left_ankle">
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="raw_count"/>
+      <state_interface name="node_id"/>
+      <state_interface name="feedback_valid"/>
+      <state_interface name="stale"/>
+    </sensor>
+
+    <sensor name="right_ankle">
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="raw_count"/>
+      <state_interface name="node_id"/>
+      <state_interface name="feedback_valid"/>
+      <state_interface name="stale"/>
+    </sensor>
 
   </ros2_control>
 </robot>

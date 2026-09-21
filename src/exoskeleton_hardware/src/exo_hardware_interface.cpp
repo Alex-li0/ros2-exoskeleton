@@ -33,6 +33,20 @@ uint8_t ExoHardwareInterface::calc_checksum(uint8_t cmd, uint8_t len, const uint
   return chk;
 }
 
+int32_t ExoHardwareInterface::ankle_count_from_zero(
+  uint16_t raw_count, uint16_t zero_offset)
+{
+  constexpr int32_t resolution =
+    static_cast<int32_t>(usb_protocol::ANKLE_ENCODER_RESOLUTION);
+  constexpr int32_t half_resolution = resolution / 2;
+  int32_t delta = static_cast<int32_t>(raw_count) - static_cast<int32_t>(zero_offset);
+  delta = (delta + half_resolution) % resolution;
+  if (delta < 0) {
+    delta += resolution;
+  }
+  return delta - half_resolution;
+}
+
 // ===================== 发送命令帧 =====================
 // 帧格式: STX_REQ(0xAA) | CMD | LEN | DATA... | CHK
 
@@ -227,6 +241,11 @@ void ExoHardwareInterface::handle_disconnect()
   }
   connected_ = false;
   hw_commands_.fill(0.0);
+  ankle_velocities_.fill(0.0);
+  ankle_feedback_valid_.fill(0.0);
+  ankle_stale_.fill(1.0);
+  ankle_raw_prev_.fill(-1);
+  ankle_tick_prev_.fill(0);
 
   RCLCPP_WARN(rclcpp::get_logger("ExoHardwareInterface"),
               "串口已断开 (%.1fs 无数据), 进入重连模式", data_timeout_);
@@ -306,6 +325,17 @@ hardware_interface::CallbackReturn ExoHardwareInterface::on_init(
     ? (info.hardware_parameters.at("use_mock") == "true" ||
        info.hardware_parameters.at("use_mock") == "1") : false;
 
+  ankle_velocity_filter_alpha_ =
+    info.hardware_parameters.count("ankle_velocity_filter_alpha") ?
+    std::stod(info.hardware_parameters.at("ankle_velocity_filter_alpha")) : 0.2;
+  if (ankle_velocity_filter_alpha_ <= 0.0 || ankle_velocity_filter_alpha_ > 1.0) {
+    RCLCPP_FATAL(
+      rclcpp::get_logger("ExoHardwareInterface"),
+      "ankle_velocity_filter_alpha 需在 (0, 1] 内，实际 %.3f",
+      ankle_velocity_filter_alpha_);
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+
   joint_names_.reserve(info.joints.size());
   for (const auto & joint : info.joints) {
     joint_names_.push_back(joint.name);
@@ -316,6 +346,23 @@ hardware_interface::CallbackReturn ExoHardwareInterface::on_init(
       rclcpp::get_logger("ExoHardwareInterface"),
       "期望 %zu 个关节，实际 %zu 个", NUM_JOINTS, joint_names_.size());
     return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  if (info.sensors.size() != NUM_ANKLE_ENCODERS) {
+    RCLCPP_FATAL(
+      rclcpp::get_logger("ExoHardwareInterface"),
+      "期望 %zu 个踝编码器 sensor，实际 %zu 个",
+      NUM_ANKLE_ENCODERS, info.sensors.size());
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+  for (size_t i = 0; i < NUM_ANKLE_ENCODERS; ++i) {
+    if (info.sensors[i].name != ankle_names_[i]) {
+      RCLCPP_FATAL(
+        rclcpp::get_logger("ExoHardwareInterface"),
+        "踝编码器 sensor 顺序应为 [left_ankle, right_ankle]，索引 %zu 实际为 %s",
+        i, info.sensors[i].name.c_str());
+      return hardware_interface::CallbackReturn::ERROR;
+    }
   }
 
   // 关节↔电机ID + 方向符号: 从 motor_map_file (YAML) 按关节名加载
@@ -410,6 +457,51 @@ bool ExoHardwareInterface::load_motor_map(const std::string & path)
       return false;
     }
   }
+
+  const YAML::Node ankle_map = root["ankle_encoder_map"]["ros__parameters"];
+  if (!ankle_map || !ankle_map["joints"] || !ankle_map["node_id"] ||
+      !ankle_map["joint_sign"] || !ankle_map["zero_offset_counts"])
+  {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("ExoHardwareInterface"),
+      "motor_map_file 缺少 ankle_encoder_map 的 joints/node_id/joint_sign/zero_offset_counts");
+    return false;
+  }
+  const YAML::Node ankle_joints = ankle_map["joints"];
+  const YAML::Node ankle_ids = ankle_map["node_id"];
+  const YAML::Node ankle_signs = ankle_map["joint_sign"];
+  const YAML::Node ankle_zeros = ankle_map["zero_offset_counts"];
+  if (!ankle_joints.IsSequence() || !ankle_ids.IsSequence() ||
+      !ankle_signs.IsSequence() || !ankle_zeros.IsSequence() ||
+      ankle_joints.size() != NUM_ANKLE_ENCODERS ||
+      ankle_ids.size() != NUM_ANKLE_ENCODERS ||
+      ankle_signs.size() != NUM_ANKLE_ENCODERS ||
+      ankle_zeros.size() != NUM_ANKLE_ENCODERS)
+  {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("ExoHardwareInterface"),
+      "ankle_encoder_map 的四个数组必须均为长度 %zu", NUM_ANKLE_ENCODERS);
+    return false;
+  }
+  for (size_t i = 0; i < NUM_ANKLE_ENCODERS; ++i) {
+    const std::string name = ankle_joints[i].as<std::string>();
+    const int id = ankle_ids[i].as<int>();
+    const int sign = ankle_signs[i].as<int>();
+    const int zero = ankle_zeros[i].as<int>();
+    if (name != ankle_names_[i] || id < 1 || id > 255 ||
+        (sign != -1 && sign != 1) || zero < 0 ||
+        zero >= static_cast<int>(usb_protocol::ANKLE_ENCODER_RESOLUTION))
+    {
+      RCLCPP_ERROR(
+        rclcpp::get_logger("ExoHardwareInterface"),
+        "非法踝编码器配置[%zu]: name=%s id=%d sign=%d zero=%d",
+        i, name.c_str(), id, sign, zero);
+      return false;
+    }
+    ankle_node_id_[i] = static_cast<uint8_t>(id);
+    ankle_sign_[i] = static_cast<int8_t>(sign);
+    ankle_zero_offset_[i] = static_cast<uint16_t>(zero);
+  }
   return true;
 }
 
@@ -421,6 +513,14 @@ hardware_interface::CallbackReturn ExoHardwareInterface::on_configure(
   hw_efforts_.fill(0.0);
   hw_commands_.fill(0.0);
   hw_zero_position_commands_.fill(0.0);
+  ankle_positions_.fill(0.0);
+  ankle_velocities_.fill(0.0);
+  ankle_raw_counts_.fill(0.0);
+  ankle_node_ids_.fill(0.0);
+  ankle_feedback_valid_.fill(0.0);
+  ankle_stale_.fill(1.0);
+  ankle_raw_prev_.fill(-1);
+  ankle_tick_prev_.fill(0);
   enc_raw_prev_.fill(-1);
   enc_continuous_.fill(0);
   enc_zero_offset_.fill(0);
@@ -460,6 +560,11 @@ hardware_interface::CallbackReturn ExoHardwareInterface::on_activate(
   enc_continuous_.fill(0);
   enc_zero_offset_.fill(0);
   zero_captured_ = false;
+  ankle_velocities_.fill(0.0);
+  ankle_feedback_valid_.fill(0.0);
+  ankle_stale_.fill(1.0);
+  ankle_raw_prev_.fill(-1);
+  ankle_tick_prev_.fill(0);
   hw_zero_position_commands_.fill(0.0);
 
   // 若未连接, 再尝试一次
@@ -527,6 +632,21 @@ ExoHardwareInterface::export_state_interfaces()
       joint_names_[i], "stm32_tick_ms", &hw_stm32_ticks_ms_[i]);
     interfaces.emplace_back(
       joint_names_[i], "feedback_sequence", &hw_feedback_sequences_[i]);
+  }
+
+  for (size_t i = 0; i < NUM_ANKLE_ENCODERS; ++i) {
+    interfaces.emplace_back(
+      ankle_names_[i], hardware_interface::HW_IF_POSITION, &ankle_positions_[i]);
+    interfaces.emplace_back(
+      ankle_names_[i], hardware_interface::HW_IF_VELOCITY, &ankle_velocities_[i]);
+    interfaces.emplace_back(
+      ankle_names_[i], "raw_count", &ankle_raw_counts_[i]);
+    interfaces.emplace_back(
+      ankle_names_[i], "node_id", &ankle_node_ids_[i]);
+    interfaces.emplace_back(
+      ankle_names_[i], "feedback_valid", &ankle_feedback_valid_[i]);
+    interfaces.emplace_back(
+      ankle_names_[i], "stale", &ankle_stale_[i]);
   }
 
   return interfaces;
@@ -634,11 +754,12 @@ bool ExoHardwareInterface::configure_serial()
 // CMD_MOTOR_RAW_FEEDBACK (0x15) 数据布局:
 //   bus_count(1B) | motors_per_bus(1B) |
 //   [encoder(u16 LE) | speed(i16 LE) | iq(i16 LE) | multi_turn(i32 LE)] × N
-//   每马达 10 字节
+//   每马达 10 字节 | 可选电机诊断(18B) |
+//   可选 [node_id(u8) | flags(u8) | raw_count(u16 LE)] × 2 踝编码器
 
-static bool parse_feedback_data(const uint8_t * data, uint8_t len,
-                                std::vector<MotorFeedback> & motors,
-                                FeedbackMetadata & metadata)
+bool ExoHardwareInterface::parse_feedback_data(
+  const uint8_t * data, uint8_t len,
+  std::vector<MotorFeedback> & motors, FeedbackMetadata & metadata)
 {
   motors.clear();
   metadata = FeedbackMetadata{};
@@ -683,6 +804,21 @@ static bool parse_feedback_data(const uint8_t * data, uint8_t len,
       metadata.temperature_c[i] = static_cast<int8_t>(ext[offset]);
       metadata.error_state[i] = ext[offset + 1];
       metadata.feedback_age_ms[i] = ext[offset + 2];
+    }
+
+    constexpr size_t ankle_extension_size =
+      NUM_ANKLE_ENCODERS * sizeof(AnkleFeedback);
+    if (len >= extension_offset + extension_size + ankle_extension_size) {
+      const uint8_t * ankle_ext = ext + extension_size;
+      metadata.ankle_extension_valid = true;
+      for (size_t i = 0; i < NUM_ANKLE_ENCODERS; ++i) {
+        const size_t offset = i * sizeof(AnkleFeedback);
+        metadata.ankles[i].node_id = ankle_ext[offset];
+        metadata.ankles[i].flags = ankle_ext[offset + 1];
+        metadata.ankles[i].raw_count =
+          static_cast<uint16_t>(ankle_ext[offset + 2]) |
+          (static_cast<uint16_t>(ankle_ext[offset + 3]) << 8);
+      }
     }
   }
 
@@ -851,6 +987,59 @@ hardware_interface::return_type ExoHardwareInterface::read(
       }
     }
     got_complete_frame = got_complete_frame || frame_complete;
+
+    if (metadata.ankle_extension_valid) {
+      for (size_t i = 0; i < NUM_ANKLE_ENCODERS; ++i) {
+        const AnkleFeedback & ankle = metadata.ankles[i];
+        const bool id_matches = ankle.node_id == ankle_node_id_[i];
+        const bool valid = (ankle.flags & 0x01U) != 0U;
+        const bool stale = (ankle.flags & 0x02U) != 0U;
+        const bool count_in_range =
+          ankle.raw_count < usb_protocol::ANKLE_ENCODER_RESOLUTION;
+        ankle_node_ids_[i] = static_cast<double>(ankle.node_id);
+        ankle_raw_counts_[i] = static_cast<double>(ankle.raw_count);
+        ankle_feedback_valid_[i] =
+          (id_matches && valid && !stale && count_in_range) ? 1.0 : 0.0;
+        ankle_stale_[i] = stale ? 1.0 : 0.0;
+
+        if (!id_matches) {
+          RCLCPP_WARN_THROTTLE(
+            rclcpp::get_logger("ExoHardwareInterface"), clock_, 2000,
+            "%s 节点ID不匹配: 期望 %u，实际 %u",
+            ankle_names_[i].c_str(), ankle_node_id_[i], ankle.node_id);
+          continue;
+        }
+        if (!valid || stale || !count_in_range)
+        {
+          continue;
+        }
+
+        const int32_t corrected_count =
+          ankle_count_from_zero(ankle.raw_count, ankle_zero_offset_[i]);
+        ankle_positions_[i] = static_cast<double>(ankle_sign_[i]) *
+          static_cast<double>(corrected_count) *
+          (2.0 * M_PI / static_cast<double>(usb_protocol::ANKLE_ENCODER_RESOLUTION));
+
+        if (ankle_raw_prev_[i] >= 0 && ankle_tick_prev_[i] != metadata.stm32_tick_ms) {
+          const int32_t delta_count = ankle_count_from_zero(
+            ankle.raw_count, static_cast<uint16_t>(ankle_raw_prev_[i]));
+          const uint32_t delta_ms = metadata.stm32_tick_ms - ankle_tick_prev_[i];
+          if (delta_ms > 0U) {
+            const double raw_velocity = static_cast<double>(ankle_sign_[i]) *
+              static_cast<double>(delta_count) *
+              (2.0 * M_PI / static_cast<double>(usb_protocol::ANKLE_ENCODER_RESOLUTION)) *
+              (1000.0 / static_cast<double>(delta_ms));
+            ankle_velocities_[i] += ankle_velocity_filter_alpha_ *
+              (raw_velocity - ankle_velocities_[i]);
+          }
+        }
+        ankle_raw_prev_[i] = ankle.raw_count;
+        ankle_tick_prev_[i] = metadata.stm32_tick_ms;
+      }
+    } else {
+      ankle_feedback_valid_.fill(0.0);
+      ankle_stale_.fill(1.0);
+    }
   }
 
   if (got_data) {
