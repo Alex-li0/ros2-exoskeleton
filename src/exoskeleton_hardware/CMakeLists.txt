@@ -12,6 +12,14 @@ find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(yaml_cpp_vendor REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(std_msgs REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}_interfaces
+  "msg/FootPressureSample.msg"
+  LIBRARY_NAME ${PROJECT_NAME}
+  DEPENDENCIES std_msgs
+)
 
 add_library(${PROJECT_NAME} SHARED
   src/exo_hardware_interface.cpp
@@ -43,7 +51,7 @@ install(
   DIRECTORY urdf config launch
   DESTINATION share/${PROJECT_NAME}
 )
-install(FILES README_ankle_encoder.md
+install(FILES README_ankle_encoder.md README_foot_pressure.md
   DESTINATION share/${PROJECT_NAME}
 )
 # 可执行脚本 (ros2 run exoskeleton_hardware test_motor_control)
@@ -83,11 +91,26 @@ install(FILES scripts/calibrate_ankle_zero.py
               WORLD_READ WORLD_EXECUTE
 )
 
+# Optional, standalone TTL-USB reader; not started by motor bringup.
+install(FILES scripts/foot_pressure_reader.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME foot_pressure_reader
+  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+              GROUP_READ GROUP_EXECUTE
+              WORLD_READ WORLD_EXECUTE
+)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  find_package(ament_cmake_test REQUIRED)
+  ament_add_test(test_foot_pressure_reader
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/test_foot_pressure_reader.py"
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+  )
 
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_hardware_interface test/test_hardware_interface.cpp)
@@ -102,6 +125,7 @@ endif()
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_dependencies(
+  rosidl_default_runtime
   hardware_interface
   pluginlib
   rclcpp

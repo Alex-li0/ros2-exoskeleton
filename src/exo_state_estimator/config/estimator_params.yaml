@@ -1,57 +1,41 @@
 ct_exo_state_node:
   ros__parameters:
-    # ============================================================
-    # TF Frame 配置
-    # ============================================================
     world_frame: "global"
     pelvis_frame: "pelvis_fused"
-    imu_frame: "imu"
-
-    # 传感器输入。关节状态必须来自编码器反馈，不能使用 /cpg/joint_ref。
     imu_topic: "/imu/pelvis"
     joint_state_topic: "/joint_states"
-
-    # ============================================================
-    # URDF 路径 (用于 FK 正运动学 via KDL)
-    # ============================================================
+    # Must be transformed to pelvis using the moving camera's kinematics first.
+    # That converter is not implemented here. Do not rename raw odomimu's frame.
+    vio_topic: "/pelvis/vio_odometry"
+    vio_body_frame: "base_link"
     urdf_path: "/home/lsy/vins_ws/src/robot_display/urdf/robot_display.urdf"
-
-    # ============================================================
-    # 优化器参数
-    # ============================================================
-    optimize_frequency: 200.0   # Hz, 优化触发频率
-    lag_seconds: 5.0            # 滑动窗口滞后时间 (秒)
-    frame_dt: 0.005             # 帧间隔 (秒), 对应 200Hz
-
-    # ============================================================
-    # 先验噪声 (初始帧锚定)
-    # ============================================================
-    prior_pos_sigma: 0.01       # 位置先验标准差 (m)
-    prior_rot_sigma: 0.01       # 姿态先验标准差 (rad)
-
-    # ============================================================
-    # VIO (OpenVINS) 噪声参数
-    # ============================================================
-    vio_pos_sigma: 0.05         # VIO 位置测量标准差 (m)
-    vio_rot_sigma: 0.1          # VIO 姿态测量标准差 (rad)
-
-    # ============================================================
-    # 运动学因子参数
-    # ============================================================
-    kinematic_stick_sigma: 0.05  # 踩实模态协方差标准差 (m)
-    kinematic_w_valid: 0.999     # 踩实先验概率
-
-    # ============================================================
-    # 高程图地形因子参数
-    # ============================================================
-    terrain_height: 0.0          # 地面先验高度 (m)
-    terrain_sigma_sensor: 0.01   # 高程图传感器不确定度 (m)
-
-    # ============================================================
-    # 独立 IMU 传感器 (非 VIO 内置)
-    # ============================================================
-    use_imu_factor: true         # 启用 IMU 预积分因子
-    imu_accel_noise: 0.01       # 加速度计噪声密度 (m/s^2/sqrt(Hz))
-    imu_gyro_noise: 0.001       # 陀螺仪噪声密度 (rad/s/sqrt(Hz))
-    imu_accel_bias_rw: 0.0002   # 加速度计偏置随机游走
-    imu_gyro_bias_rw: 0.00003   # 陀螺仪偏置随机游走
+    # Timer drains queues; graph keyframes follow new VIO measurement stamps.
+    optimize_frequency: 200.0
+    keyframe_frequency: 25.0  # Maximum graph update frequency; not a measured guarantee.
+    lag_seconds: 5.0
+    fusion_delay: 0.1         # Debug starting point; validate event decision latency.
+    input_timeout: 0.5
+    joint_max_gap: 0.03
+    max_imu_gap: 0.02
+    gait_state_timeout: 0.15
+    gait_min_confidence: 0.8
+    # Enable only after sole offsets and locked hip1/2 model zeros are calibrated.
+    contact_geometry_calibrated: false
+    left_contact_offset: [0.0, 0.0, 0.0]
+    right_contact_offset: [0.0, 0.0, 0.0]
+    use_terrain_factor: false
+    map_timeout: 0.3
+    prior_pos_sigma: 0.01
+    prior_rot_sigma: 0.01
+    # Empirical RELATIVE VIO noise. Not absolute pose covariance.
+    vio_pos_sigma: 0.05
+    vio_rot_sigma: 0.1
+    kinematic_stick_sigma: 0.05
+    use_imu_factor: true
+    # B_T_I: sensor pose expressed in the pelvis frame; replace after calibration.
+    body_imu_xyz: [0.0, 0.0, 0.0]
+    body_imu_rpy: [0.0, 0.0, 0.0]
+    imu_accel_noise: 0.01
+    imu_gyro_noise: 0.001
+    imu_accel_bias_rw: 0.0002
+    imu_gyro_bias_rw: 0.00003

@@ -28,7 +28,8 @@ class FKSolver {
   // leg: "left" 或 "right"
   // joint_values: 3个主动关节角度 [hip3, knee, ankle] (rad)
   FKResult compute(const std::string& leg,
-                   const std::vector<double>& joint_values) const;
+                   const std::vector<double>& joint_values,
+                   const Eigen::Vector3d& contact_offset = Eigen::Vector3d::Zero()) const;
 
   const std::vector<std::string>& getJointNames(const std::string& leg) const;
 
@@ -44,7 +45,6 @@ class FKSolver {
 
   static constexpr int kNumJoints = 3;
 
-  Eigen::Matrix3d rotationToEigen(const KDL::Rotation& r) const;
   Eigen::Vector3d vectorToEigen(const KDL::Vector& v) const;
 };
 

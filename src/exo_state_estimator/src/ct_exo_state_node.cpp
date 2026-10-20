@@ -1,418 +1,398 @@
 #include "exo_state_estimator/ct_exo_state_node.hpp"
 
+#include <algorithm>
 #include <chrono>
-#include <fstream>
-#include <sstream>
-
-#include <tf2/LinearMath/Quaternion.h>
-
-// grid_map 只在 .cpp 中使用, 避免 Eigen 插件冲突
+#include <cmath>
+#include <stdexcept>
 #include <grid_map_core/GridMap.hpp>
 #include <grid_map_ros/GridMapRosConverter.hpp>
 
 namespace exo_state_estimator {
+namespace {
+double seconds(const builtin_interfaces::msg::Time& stamp) {
+  return rclcpp::Time(stamp).seconds();
+}
+builtin_interfaces::msg::Time messageTime(double stamp) {
+  return rclcpp::Time(static_cast<int64_t>(std::llround(stamp * 1e9)));
+}
+Eigen::Vector3d vectorParameter(rclcpp::Node& node, const std::string& name) {
+  const auto values = node.declare_parameter(name, std::vector<double>{0, 0, 0});
+  if (values.size() != 3) throw std::invalid_argument(name + " must have three entries");
+  Eigen::Vector3d result(values[0], values[1], values[2]);
+  if (!result.allFinite()) throw std::invalid_argument(name + " must be finite");
+  return result;
+}
+}  // namespace
 
-CTExoStateNode::CTExoStateNode() : Node("ct_exo_state_node") {
-  RCLCPP_INFO(this->get_logger(), "Initializing CT-ExoState estimator...");
-
+CTExoStateNode::CTExoStateNode(const rclcpp::NodeOptions& options)
+    : Node("ct_exo_state_node", options) {
   loadParameters();
-
-  config_ = buildConfig();
-
-  // 初始化优化器
   optimizer_ = std::make_unique<FactorGraphOptimizer>();
-  if (!optimizer_->init(config_)) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to initialize optimizer");
-    rclcpp::shutdown();
-    return;
-  }
-
-  // 初始化接触检测器
-  ThresholdContactDetector::Config det_config;
-  contact_detector_ = std::make_unique<ThresholdContactDetector>(det_config);
-
-  // 订阅
-  // 独立 IMU 传感器 (非 VIO 内置的 D435i IMU)
-  // 通过 launch 文件 remappings 映射到实际 topic
-  std::string imu_topic = this->declare_parameter("imu_topic", "/imu/standalone");
-  imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
-      imu_topic, rclcpp::SensorDataQoS(),
+  if (!optimizer_->init(config_)) throw std::runtime_error("Invalid estimator configuration/URDF");
+  contact_tracker_ = std::make_unique<GaitContactTracker>(
+      declare_parameter("gait_state_timeout", .15), declare_parameter("gait_min_confidence", .8));
+  imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
+      declare_parameter("imu_topic", "/imu/pelvis"), rclcpp::SensorDataQoS(),
       std::bind(&CTExoStateNode::imuCallback, this, std::placeholders::_1));
-
-  // 状态估计必须使用编码器实测值，而不是 CPG 期望轨迹。话题做成参数，
-  // 便于 rosbag 回放时重映射，但默认接 ros2_control 的 joint_state_broadcaster。
-  std::string joint_state_topic =
-      this->declare_parameter("joint_state_topic", "/joint_states");
-  joint_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
-      joint_state_topic, rclcpp::SensorDataQoS(),
-      std::bind(&CTExoStateNode::jointStateCallback, this,
-                std::placeholders::_1));
-
-  vio_odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-      "/ov_msckf/odomimu", rclcpp::SensorDataQoS(),
-      std::bind(&CTExoStateNode::vioOdometryCallback, this,
-                std::placeholders::_1));
-
-  grid_map_sub_ = this->create_subscription<grid_map_msgs::msg::GridMap>(
+  joint_state_sub_ = create_subscription<sensor_msgs::msg::JointState>(
+      declare_parameter("joint_state_topic", "/joint_states"), rclcpp::SensorDataQoS(),
+      std::bind(&CTExoStateNode::jointStateCallback, this, std::placeholders::_1));
+  vio_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+      declare_parameter("vio_topic", "/pelvis/vio_odometry"), rclcpp::SensorDataQoS(),
+      std::bind(&CTExoStateNode::vioOdometryCallback, this, std::placeholders::_1));
+  grid_map_sub_ = create_subscription<grid_map_msgs::msg::GridMap>(
       "/elevation_mapping_node/elevation_map_raw", rclcpp::QoS(1).reliable(),
-      std::bind(&CTExoStateNode::gridMapCallback, this,
-                std::placeholders::_1));
-
-  cpg_state_sub_ = this->create_subscription<std_msgs::msg::String>(
-      "/cpg/state", rclcpp::QoS(10),
-      std::bind(&CTExoStateNode::cpgStateCallback, this,
-                std::placeholders::_1));
-
-  // 发布
-  fused_odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>(
-      "/fused/odometry", rclcpp::SensorDataQoS());
-
-  contact_pub_ = this->create_publisher<std_msgs::msg::UInt8>(
-      "/fused/contact_state", rclcpp::QoS(10));
-
-  diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
-      "/fused/diagnostics", rclcpp::QoS(1));
-
+      std::bind(&CTExoStateNode::gridMapCallback, this, std::placeholders::_1));
+  gait_event_sub_ = create_subscription<msg::GaitEvent>(
+      "/gait/events", rclcpp::QoS(100).reliable(),
+      std::bind(&CTExoStateNode::gaitEventCallback, this, std::placeholders::_1));
+  gait_contact_sub_ = create_subscription<msg::GaitContactState>(
+      "/gait/contact_state", rclcpp::QoS(100).reliable(),
+      std::bind(&CTExoStateNode::gaitContactCallback, this, std::placeholders::_1));
+  fused_odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/fused/odometry", rclcpp::SensorDataQoS());
+  contact_pub_ = create_publisher<std_msgs::msg::UInt8>("/fused/contact_state", 10);
+  stable_support_pub_ = create_publisher<std_msgs::msg::UInt8>("/fused/stable_support", 10);
+  diag_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/fused/diagnostics", 1);
   tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
-
-  // 定时优化触发 (200Hz)
-  double optimize_freq = this->declare_parameter("optimize_frequency", 200.0);
-  optimize_timer_ = this->create_wall_timer(
-      std::chrono::duration<double>(1.0 / optimize_freq),
+  const double frequency = declare_parameter("optimize_frequency", 200.0);
+  if (!std::isfinite(frequency) || frequency <= 0) throw std::invalid_argument("Invalid optimize_frequency");
+  optimize_timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / frequency),
       std::bind(&CTExoStateNode::optimizeTimerCallback, this));
-
-  RCLCPP_INFO(this->get_logger(), "CT-ExoState estimator started at %.0f Hz",
-              optimize_freq);
+  diagnostic_timer_ = create_wall_timer(std::chrono::milliseconds(100),
+      std::bind(&CTExoStateNode::publishDiagnostics, this));
 }
 
 void CTExoStateNode::loadParameters() {
-  world_frame_ = this->declare_parameter("world_frame", "global");
-  pelvis_frame_ = this->declare_parameter("pelvis_frame", "pelvis_fused");
-  imu_frame_ = this->declare_parameter("imu_frame", "imu");
-
-  config_.urdf_path =
-      this->declare_parameter("urdf_path", std::string(""));
-  config_.lag_seconds = this->declare_parameter("lag_seconds", 5.0);
-  config_.frame_dt = this->declare_parameter("frame_dt", 0.005);
-
-  config_.terrain_height = this->declare_parameter("terrain_height", 0.0);
-  config_.terrain_sigma_sensor =
-      this->declare_parameter("terrain_sigma_sensor", 0.01);
-  config_.kinematic_w_valid =
-      this->declare_parameter("kinematic_w_valid", 0.999);
-
-  // IMU 预留参数
-  config_.use_imu_factor =
-      this->declare_parameter("use_imu_factor", false);
-
-  config_.imu_accel_noise =
-      this->declare_parameter("imu_accel_noise", 0.01);
-  config_.imu_gyro_noise =
-      this->declare_parameter("imu_gyro_noise", 0.001);
-  config_.imu_accel_bias_rw =
-      this->declare_parameter("imu_accel_bias_rw", 0.0002);
-  config_.imu_gyro_bias_rw =
-      this->declare_parameter("imu_gyro_bias_rw", 0.00003);
-
-  // VIO 协方差缩放
-  double vio_pos_sigma = this->declare_parameter("vio_pos_sigma", 0.05);
-  double vio_rot_sigma = this->declare_parameter("vio_rot_sigma", 0.1);
-  config_.vio_sigmas << vio_rot_sigma, vio_rot_sigma, vio_rot_sigma,
-      vio_pos_sigma, vio_pos_sigma, vio_pos_sigma;
-
-  // 运动学协方差
-  double kin_stick_sigma = this->declare_parameter("kinematic_stick_sigma", 0.05);
-  config_.kinematic_cov_stick =
-      Eigen::Vector3d::Constant(kin_stick_sigma * kin_stick_sigma)
-          .asDiagonal();
-
-  // 先验噪声
-  double prior_pos = this->declare_parameter("prior_pos_sigma", 0.01);
-  double prior_rot = this->declare_parameter("prior_rot_sigma", 0.01);
-  config_.prior_sigmas << prior_rot, prior_rot, prior_rot, prior_pos,
-      prior_pos, prior_pos;
-}
-
-EstimatorConfig CTExoStateNode::buildConfig() const { return config_; }
-
-void CTExoStateNode::imuCallback(
-    const sensor_msgs::msg::Imu::SharedPtr msg) {
-  // 独立 IMU 传感器 (非 VIO 内置的 D435i IMU)
-  // 当 use_imu_factor=true 时, 数据会被送入 IMU 预积分器
-  std::lock_guard<std::mutex> lock(data_mutex_);
-  current_data_.accel =
-      Eigen::Vector3d(msg->linear_acceleration.x,
-                      msg->linear_acceleration.y,
-                      msg->linear_acceleration.z);
-  current_data_.gyro = Eigen::Vector3d(msg->angular_velocity.x,
-                                       msg->angular_velocity.y,
-                                       msg->angular_velocity.z);
-  current_data_.imu_valid = true;
-  current_data_.timestamp =
-      msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
-}
-
-void CTExoStateNode::jointStateCallback(
-    const sensor_msgs::msg::JointState::SharedPtr msg) {
-  std::lock_guard<std::mutex> lock(data_mutex_);
-
-  // 按 active_joint_names_ 顺序提取关节值
-  current_data_.joint_positions.resize(active_joint_names_.size());
-  current_data_.joint_velocities.resize(active_joint_names_.size());
-
-  for (size_t i = 0; i < active_joint_names_.size(); ++i) {
-    auto it = std::find(msg->name.begin(), msg->name.end(),
-                        active_joint_names_[i]);
-    if (it != msg->name.end()) {
-      size_t idx = std::distance(msg->name.begin(), it);
-      current_data_.joint_positions[i] = msg->position[idx];
-      if (idx < msg->velocity.size()) {
-        current_data_.joint_velocities[i] = msg->velocity[idx];
-      }
-    }
+  world_frame_ = declare_parameter("world_frame", "global");
+  pelvis_frame_ = declare_parameter("pelvis_frame", "pelvis_fused");
+  vio_body_frame_ = declare_parameter("vio_body_frame", "base_link");
+  config_.urdf_path = declare_parameter("urdf_path", std::string(""));
+  config_.lag_seconds = declare_parameter("lag_seconds", 5.0);
+  config_.use_imu_factor = declare_parameter("use_imu_factor", true);
+  config_.use_terrain_factor = declare_parameter("use_terrain_factor", false);
+  config_.contact_geometry_calibrated = declare_parameter("contact_geometry_calibrated", false);
+  config_.left_contact_offset = vectorParameter(*this, "left_contact_offset");
+  config_.right_contact_offset = vectorParameter(*this, "right_contact_offset");
+  const auto xyz = vectorParameter(*this, "body_imu_xyz");
+  const auto rpy = vectorParameter(*this, "body_imu_rpy");
+  config_.body_P_imu = gtsam::Pose3(gtsam::Rot3::RzRyRx(rpy.x(), rpy.y(), rpy.z()), xyz);
+  config_.imu_accel_noise = declare_parameter("imu_accel_noise", .01);
+  config_.imu_gyro_noise = declare_parameter("imu_gyro_noise", .001);
+  config_.imu_accel_bias_rw = declare_parameter("imu_accel_bias_rw", .0002);
+  config_.imu_gyro_bias_rw = declare_parameter("imu_gyro_bias_rw", .00003);
+  config_.max_imu_gap = declare_parameter("max_imu_gap", .02);
+  const double pos = declare_parameter("prior_pos_sigma", .01);
+  const double rot = declare_parameter("prior_rot_sigma", .01);
+  config_.prior_sigmas << rot, rot, rot, pos, pos, pos;
+  const double vp = declare_parameter("vio_pos_sigma", .05);
+  const double vr = declare_parameter("vio_rot_sigma", .1);
+  config_.vio_sigmas << vr, vr, vr, vp, vp, vp;
+  const double kin = declare_parameter("kinematic_stick_sigma", .05);
+  config_.kinematic_cov_stick = Eigen::Matrix3d::Identity() * kin * kin;
+  const double keyframe_frequency = declare_parameter("keyframe_frequency", 25.0);
+  if (!std::isfinite(keyframe_frequency) || keyframe_frequency <= 0) {
+    throw std::invalid_argument("Invalid keyframe_frequency");
+  }
+  keyframe_period_ = 1.0 / keyframe_frequency;
+  fusion_delay_ = declare_parameter("fusion_delay", .1);
+  input_timeout_ = declare_parameter("input_timeout", .5);
+  joint_max_gap_ = declare_parameter("joint_max_gap", .03);
+  map_timeout_ = declare_parameter("map_timeout", .3);
+  if (!std::isfinite(fusion_delay_) || !std::isfinite(input_timeout_) ||
+      !std::isfinite(joint_max_gap_) || !std::isfinite(map_timeout_) ||
+      fusion_delay_ < 0 || input_timeout_ <= fusion_delay_ ||
+      joint_max_gap_ <= 0 || map_timeout_ <= 0 || kin <= 0) {
+    throw std::invalid_argument("Invalid fusion timing/noise parameters");
   }
 }
 
-void CTExoStateNode::vioOdometryCallback(
-    const nav_msgs::msg::Odometry::SharedPtr msg) {
+void CTExoStateNode::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg) {
+  ImuSample sample;
+  sample.timestamp = seconds(msg->header.stamp);
+  sample.accel = {msg->linear_acceleration.x, msg->linear_acceleration.y, msg->linear_acceleration.z};
+  sample.gyro = {msg->angular_velocity.x, msg->angular_velocity.y, msg->angular_velocity.z};
+  if (!sample.accel.allFinite() || !sample.gyro.allFinite()) return;
   std::lock_guard<std::mutex> lock(data_mutex_);
-
-  const auto& p = msg->pose.pose.position;
-  const auto& q = msg->pose.pose.orientation;
-  gtsam::Rot3 rot(gtsam::Quaternion(q.w, q.x, q.y, q.z));
-  gtsam::Point3 pos(p.x, p.y, p.z);
-  current_data_.vio_pose = gtsam::Pose3(rot, pos);
-
-  // 提取协方差 (6x6 from 6x6 row-major)
-  Eigen::Matrix<double, 6, 6> cov = Eigen::Matrix<double, 6, 6>::Zero();
-  for (int i = 0; i < 6; ++i)
-    for (int j = 0; j < 6; ++j)
-      cov(i, j) = msg->pose.covariance[i * 6 + j];
-  current_data_.vio_covariance = cov;
-  current_data_.vio_valid = true;
+  if (!imu_samples_.empty() && sample.timestamp <= imu_samples_.back().timestamp) return;
+  imu_samples_.push_back(sample);
+  while (imu_samples_.size() > 8000) imu_samples_.pop_front();
 }
 
-void CTExoStateNode::gridMapCallback(
-    const grid_map_msgs::msg::GridMap::SharedPtr msg) {
+void CTExoStateNode::jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg) {
+  JointSample sample{seconds(msg->header.stamp), {}};
+  for (const auto& name : active_joint_names_) {
+    const auto it = std::find(msg->name.begin(), msg->name.end(), name);
+    if (it == msg->name.end()) return;
+    const auto index = static_cast<size_t>(std::distance(msg->name.begin(), it));
+    if (index >= msg->position.size() || !std::isfinite(msg->position[index])) return;
+    sample.positions.push_back(msg->position[index]);
+  }
+  std::lock_guard<std::mutex> lock(data_mutex_);
+  if (!joint_samples_.empty() && sample.timestamp <= joint_samples_.back().timestamp) return;
+  joint_samples_.push_back(std::move(sample));
+  while (joint_samples_.size() > 8000) joint_samples_.pop_front();
+}
+
+void CTExoStateNode::vioOdometryCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
+  if (msg->header.frame_id != world_frame_ || msg->child_frame_id != vio_body_frame_) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+        "VIO must already describe pelvis (%s -> %s); raw moving-leg odomimu is not accepted",
+        world_frame_.c_str(), vio_body_frame_.c_str());
+    return;
+  }
+  const auto& p = msg->pose.pose.position;
+  const auto& q = msg->pose.pose.orientation;
+  Eigen::Quaterniond rotation(q.w, q.x, q.y, q.z);
+  if (!Eigen::Vector3d(p.x, p.y, p.z).allFinite() || !rotation.coeffs().allFinite() ||
+      std::abs(rotation.norm() - 1.0) > .01) return;
+  SensorData data;
+  data.timestamp = seconds(msg->header.stamp);
+  data.vio_pose = gtsam::Pose3(gtsam::Rot3(rotation.normalized()), {p.x, p.y, p.z});
+  data.vio_valid = true;
+  std::lock_guard<std::mutex> lock(data_mutex_);
+  if (data.timestamp <= last_vio_stamp_) return;
+  last_vio_stamp_ = data.timestamp;
+  if (last_keyframe_stamp_ >= 0 && data.timestamp - last_keyframe_stamp_ < keyframe_period_ - 1e-8) return;
+  last_keyframe_stamp_ = data.timestamp;
+  vio_samples_.push_back(data);
+  if (vio_samples_.size() > 200) {
+    resetInputs();
+    diagnostic_reason_ = "VIO queue overflow; reset, waiting for new observations";
+  }
+}
+
+void CTExoStateNode::gaitEventCallback(const msg::GaitEvent::SharedPtr msg) {
+  std::lock_guard<std::mutex> lock(data_mutex_);
+  const double stamp = seconds(msg->header.stamp);
+  const bool accepted = contact_tracker_->addEvent(stamp, msg->foot_id,
+      static_cast<GaitEventType>(msg->event), msg->event_id, msg->valid, msg->confidence);
+  if (!accepted && contact_tracker_->lastRejectionWasLate()) {
+    // Old contact factors may be wrong: invalidate the whole local graph, not just the flag.
+    optimizer_->reset();
+    processed_stamp_ = -1;
+    diagnostic_reason_ = "Late gait event: graph reset; increase validated fusion delay";
+  }
+}
+
+void CTExoStateNode::gaitContactCallback(const msg::GaitContactState::SharedPtr msg) {
+  std::lock_guard<std::mutex> lock(data_mutex_);
+  const double stamp = seconds(msg->header.stamp);
+  if (!contact_tracker_->addObservation(stamp, msg->foot_id, msg->any_contact,
+      msg->full_foot_stable, msg->valid, msg->confidence) && contact_tracker_->lastRejectionWasLate()) {
+    optimizer_->reset();
+    processed_stamp_ = -1;
+    diagnostic_reason_ = "Late contact observation: graph reset";
+  }
+}
+
+void CTExoStateNode::gridMapCallback(const grid_map_msgs::msg::GridMap::SharedPtr msg) {
   std::lock_guard<std::mutex> lock(map_mutex_);
   latest_grid_map_ = msg;
 }
 
-void CTExoStateNode::cpgStateCallback(
-    const std_msgs::msg::String::SharedPtr msg) {
-  std::lock_guard<std::mutex> lock(data_mutex_);
-  current_data_.cpg_state = msg->data;
-
-  // 基于 CPG 状态粗略推断接触 (辅助)
-  if (msg->data == "IDLE") {
-    current_data_.contact_state = ContactState::DOUBLE_STANCE;
-  }
+void CTExoStateNode::resetInputs() {
+  imu_samples_.clear();
+  joint_samples_.clear();
+  vio_samples_.clear();
+  contact_tracker_->reset();
+  optimizer_->reset();
+  processed_stamp_ = last_vio_stamp_ = last_keyframe_stamp_ = -1;
 }
 
 void CTExoStateNode::optimizeTimerCallback() {
-  SensorData data;
-  {
-    std::lock_guard<std::mutex> lock(data_mutex_);
-    data = current_data_;
+  std::lock_guard<std::mutex> lock(data_mutex_);
+  const double time = now().seconds();
+  if (last_ros_time_ >= 0 && time < last_ros_time_) {
+    resetInputs();
+    std::lock_guard<std::mutex> map_lock(map_mutex_);
+    latest_grid_map_.reset();
+    diagnostic_reason_ = "ROS clock moved backwards; buffers and graph reset";
   }
-
-  // 查询高程图
-  if (optimizer_->getLatestOutput(latest_output_) || frame_count_ == 0) {
-    // 用最新估计的位姿查询高程图
-    double x = data.vio_valid ? data.vio_pose.x() : 0;
-    double y = data.vio_valid ? data.vio_pose.y() : 0;
-    queryElevationMap(x, y, data.terrain_z, data.terrain_normal,
-                      data.terrain_sigma, data.terrain_valid);
-  }
-
-  // 接触检测
-  ContactDetectionInput det_input;
-  det_input.cpg_state = data.cpg_state;
-  if (data.joint_positions.size() >= 6) {
-    // 用关节速度的垂直分量作为辅助
-    det_input.foot_vel_left_z = data.joint_velocities[2];   // ankle
-    det_input.foot_vel_right_z = data.joint_velocities[5];  // ankle
-  }
-  ContactDetectionOutput det_output = contact_detector_->detect(det_input);
-  data.contact_state = det_output.state;
-
-  // 送入优化器
-  optimizer_->processSensorData(data);
-
-  // 发布结果
-  EstimatorOutput output;
-  if (optimizer_->getLatestOutput(output)) {
-    publishFusedOdometry(output);
-    publishContactState(output.contact_state);
-    publishDiagnostics(output);
-    publishTF(output);
+  last_ros_time_ = time;
+  for (int count = 0; count < 5 && !vio_samples_.empty(); ++count) {
+    auto data = vio_samples_.front();
+    const double age = time - data.timestamp;
+    if (age < fusion_delay_) break;
+    if (age > input_timeout_) {
+      vio_samples_.pop_front();
+      optimizer_->reset();
+      processed_stamp_ = -1;
+      diagnostic_reason_ = "Stale or unalignable input; waiting for a fresh interval";
+      continue;
+    }
+    if (config_.use_imu_factor) {
+      const double begin = processed_stamp_ >= 0 ? processed_stamp_ : data.timestamp;
+      auto first = std::upper_bound(imu_samples_.begin(), imu_samples_.end(), begin,
+          [](double t, const ImuSample& value) { return t < value.timestamp; });
+      auto end = std::lower_bound(imu_samples_.begin(), imu_samples_.end(), data.timestamp,
+          [](const ImuSample& value, double t) { return value.timestamp < t; });
+      if (first == imu_samples_.begin() || end == imu_samples_.end()) break;
+      --first;
+      data.imu_samples.assign(first, std::next(end));
+    }
+    interpolateJoints(joint_samples_, data.timestamp, joint_max_gap_, data.joint_positions);
+    data.support = contact_tracker_->at(data.timestamp);
+    if (config_.use_terrain_factor) {
+      Eigen::Vector3d left, right;
+      if (optimizer_->footPositions(data.joint_positions, data.vio_pose, left, right)) {
+        data.left_terrain = queryElevationMap(left, data.timestamp);
+        data.right_terrain = queryElevationMap(right, data.timestamp);
+      }
+    }
+    try {
+      if (!optimizer_->processSensorData(data)) {
+        diagnostic_reason_ = "IMU interval missing/invalid; no state published";
+        // Do not retry this keyframe with a contact tracker already committed to its time.
+        vio_samples_.pop_front();
+        optimizer_->reset();
+        processed_stamp_ = -1;
+        continue;
+      }
+    } catch (const std::exception& error) {
+      optimizer_->reset();
+      processed_stamp_ = -1;
+      vio_samples_.pop_front();
+      diagnostic_reason_ = std::string("Optimization failed; reset: ") + error.what();
+      continue;
+    }
+    vio_samples_.pop_front();
+    processed_stamp_ = data.timestamp;
+    while (imu_samples_.size() > 2 && imu_samples_[1].timestamp <= processed_stamp_) imu_samples_.pop_front();
+    while (joint_samples_.size() > 2 && joint_samples_[1].timestamp <= processed_stamp_) joint_samples_.pop_front();
+    EstimatorOutput output;
+    if (optimizer_->getLatestOutput(output)) {
+      publishFusedOdometry(output);
+      publishContactState(output.contact_state);
+      std_msgs::msg::UInt8 stable;
+      stable.data = static_cast<uint8_t>(output.stable_support);
+      stable_support_pub_->publish(stable);
+      publishTF(output);
+      diagnostic_reason_ = config_.contact_geometry_calibrated ? "Running" :
+          "VIO/IMU only: contact geometry is not calibrated";
+    }
   }
 }
 
-void CTExoStateNode::queryElevationMap(double x, double y, double& z_out,
-                                       Eigen::Vector3d& normal_out,
-                                       double& sigma_out, bool& valid_out) {
-  // 默认输出
-  z_out = config_.terrain_height;
-  normal_out = config_.terrain_normal;
-  sigma_out = config_.terrain_sigma_sensor;
-  valid_out = false;
-
+TerrainObservation CTExoStateNode::queryElevationMap(const Eigen::Vector3d& point, double stamp) {
+  TerrainObservation result;
   std::lock_guard<std::mutex> lock(map_mutex_);
-  if (!latest_grid_map_) return;
-
-  // 按需转换: 原始消息 -> grid_map::GridMap 对象
+  if (!latest_grid_map_ || latest_grid_map_->header.frame_id != world_frame_) return result;
+  const double age = stamp - seconds(latest_grid_map_->header.stamp);
+  if (age < 0 || age > map_timeout_) return result;
   grid_map::GridMap map;
-  if (!grid_map::GridMapRosConverter::fromMessage(*latest_grid_map_, map)) return;
-
-  grid_map::Position query_pos(x, y);
-
-  // 检查查询点是否在地图范围内
-  if (!map.isInside(query_pos)) return;
-
-  // 查询 elevation 层 (最近邻, grid_map_core 2.0.1 插值方法为 private)
-  float elevation = 0.0f;
+  if (!grid_map::GridMapRosConverter::fromMessage(*latest_grid_map_, map)) return result;
+  grid_map::Position pos(point.x(), point.y());
+  const double h = 2.0 * map.getResolution();
+  if (!map.isInside(pos) || !map.isInside(pos + grid_map::Position(h, 0)) ||
+      !map.isInside(pos - grid_map::Position(h, 0)) ||
+      !map.isInside(pos + grid_map::Position(0, h)) ||
+      !map.isInside(pos - grid_map::Position(0, h))) return result;
   try {
-    elevation = map.atPosition("elevation", query_pos);
-  } catch (...) {
-    return;
-  }
-  if (std::isnan(elevation)) return;
-
-  z_out = static_cast<double>(elevation);
-
-  // 从 elevation 梯度计算法向量 (中心差分, 步长=2格)
-  double resolution = map.getResolution();
-  double h = resolution * 2.0;
-
-  grid_map::Position pos_xp(x + h, y), pos_xm(x - h, y);
-  grid_map::Position pos_yp(x, y + h), pos_ym(x, y - h);
-
-  if (!map.isInside(pos_xp) || !map.isInside(pos_xm) ||
-      !map.isInside(pos_yp) || !map.isInside(pos_ym)) {
-    // 边界处用默认法向量, 但 elevation 有效
-    valid_out = true;
-    return;
-  }
-
-  float z_xp, z_xm, z_yp, z_ym;
-  try {
-    z_xp = map.atPosition("elevation", pos_xp);
-    z_xm = map.atPosition("elevation", pos_xm);
-    z_yp = map.atPosition("elevation", pos_yp);
-    z_ym = map.atPosition("elevation", pos_ym);
-  } catch (...) {
-    valid_out = true;
-    return;
-  }
-
-  if (std::isnan(z_xp) || std::isnan(z_xm) || std::isnan(z_yp) || std::isnan(z_ym)) {
-    valid_out = true;
-    return;
-  }
-
-  // 梯度 -> 法向量: n = normalize([-dz/dx, -dz/dy, 1])
-  double dzdx = static_cast<double>(z_xp - z_xm) / (2.0 * h);
-  double dzdy = static_cast<double>(z_yp - z_ym) / (2.0 * h);
-  normal_out = Eigen::Vector3d(-dzdx, -dzdy, 1.0).normalized();
-
-  // 查询 variance 层获取不确定度
-  if (map.exists("variance")) {
-    try {
-      float variance = map.atPosition("variance", query_pos);
-      if (!std::isnan(variance) && variance > 0) {
-        sigma_out = std::sqrt(static_cast<double>(variance));
-      }
-    } catch (...) {}
-  }
-
-  valid_out = true;
+    const double z = map.atPosition("elevation", pos);
+    const double dx = (map.atPosition("elevation", pos + grid_map::Position(h, 0)) -
+                       map.atPosition("elevation", pos - grid_map::Position(h, 0))) / (2 * h);
+    const double dy = (map.atPosition("elevation", pos + grid_map::Position(0, h)) -
+                       map.atPosition("elevation", pos - grid_map::Position(0, h))) / (2 * h);
+    if (!std::isfinite(z) || !std::isfinite(dx) || !std::isfinite(dy)) return result;
+    result.point = {point.x(), point.y(), z};
+    result.normal = Eigen::Vector3d(-dx, -dy, 1).normalized();
+    if (!map.exists("variance")) return result;
+    const double variance = map.atPosition("variance", pos);
+    if (!std::isfinite(variance) || variance <= 0) return result;
+    result.sigma = std::sqrt(variance);
+    result.valid = true;
+  } catch (const std::exception&) {}
+  return result;
 }
 
 void CTExoStateNode::publishFusedOdometry(const EstimatorOutput& output) {
-  auto msg = std::make_unique<nav_msgs::msg::Odometry>();
-  msg->header.stamp = this->now();
-  msg->header.frame_id = world_frame_;
-  msg->child_frame_id = pelvis_frame_;
-
-  msg->pose.pose.position.x = output.pose.x();
-  msg->pose.pose.position.y = output.pose.y();
-  msg->pose.pose.position.z = output.pose.z();
-
-  gtsam::Quaternion q = output.pose.rotation().toQuaternion();
-  msg->pose.pose.orientation.w = q.w();
-  msg->pose.pose.orientation.x = q.x();
-  msg->pose.pose.orientation.y = q.y();
-  msg->pose.pose.orientation.z = q.z();
-
-  // 协方差
-  for (int i = 0; i < 6; ++i)
-    for (int j = 0; j < 6; ++j)
-      msg->pose.covariance[i * 6 + j] = output.pose_cov(i, j);
-
-  // 速度 (body frame, 来自 IMU 预积分优化)
-  msg->twist.twist.linear.x = output.velocity.x();
-  msg->twist.twist.linear.y = output.velocity.y();
-  msg->twist.twist.linear.z = output.velocity.z();
-
-  fused_odom_pub_->publish(std::move(msg));
+  nav_msgs::msg::Odometry msg;
+  msg.header.stamp = messageTime(output.timestamp);
+  msg.header.frame_id = world_frame_;
+  msg.child_frame_id = pelvis_frame_;
+  const auto position = output.pose.translation();
+  msg.pose.pose.position.x = position.x();
+  msg.pose.pose.position.y = position.y();
+  msg.pose.pose.position.z = position.z();
+  const auto q = output.pose.rotation().toQuaternion();
+  msg.pose.pose.orientation.w = q.w();
+  msg.pose.pose.orientation.x = q.x();
+  msg.pose.pose.orientation.y = q.y();
+  msg.pose.pose.orientation.z = q.z();
+  // Pose3 right-local [rotation,translation] -> ROS world [position,rotation].
+  const Eigen::Matrix3d rotation = output.pose.rotation().matrix();
+  Eigen::Matrix<double, 6, 6> transform = Eigen::Matrix<double, 6, 6>::Zero();
+  transform.block<3, 3>(0, 3) = rotation;
+  transform.block<3, 3>(3, 0) = rotation;
+  const Eigen::Matrix<double, 6, 6> covariance = transform * output.pose_cov * transform.transpose();
+  for (int i = 0; i < 6; ++i) for (int j = 0; j < 6; ++j) {
+    msg.pose.covariance[6 * i + j] = covariance(i, j);
+  }
+  const Eigen::Vector3d velocity = rotation.transpose() * output.velocity;
+  msg.twist.twist.linear.x = velocity.x();
+  msg.twist.twist.linear.y = velocity.y();
+  msg.twist.twist.linear.z = velocity.z();
+  const Eigen::Matrix3d velocity_cov = rotation.transpose() * output.velocity_cov * rotation;
+  for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) {
+    msg.twist.covariance[6 * i + j] = velocity_cov(i, j);
+  }
+  // Angular velocity is not an estimated output of this graph.
+  for (int i = 3; i < 6; ++i) msg.twist.covariance[6 * i + i] = 1e6;
+  fused_odom_pub_->publish(msg);
 }
 
 void CTExoStateNode::publishContactState(ContactState state) {
-  auto msg = std::make_unique<std_msgs::msg::UInt8>();
-  msg->data = static_cast<uint8_t>(state);
-  contact_pub_->publish(std::move(msg));
+  std_msgs::msg::UInt8 msg;
+  msg.data = static_cast<uint8_t>(state);
+  contact_pub_->publish(msg);
 }
 
-void CTExoStateNode::publishDiagnostics(const EstimatorOutput& output) {
-  auto msg = std::make_unique<diagnostic_msgs::msg::DiagnosticArray>();
-  msg->header.stamp = this->now();
-
+void CTExoStateNode::publishDiagnostics() {
+  std::lock_guard<std::mutex> lock(data_mutex_);
+  diagnostic_msgs::msg::DiagnosticArray msg;
+  msg.header.stamp = now();
   diagnostic_msgs::msg::DiagnosticStatus status;
   status.name = "exo_state_estimator";
-  status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
-  status.message = "Running";
-
-  diagnostic_msgs::msg::KeyValue kv1;
-  kv1.key = "optimize_time_ms";
-  kv1.value = std::to_string(output.optimize_time_ms);
-  status.values.push_back(kv1);
-
-  diagnostic_msgs::msg::KeyValue kv2;
-  kv2.key = "num_factors";
-  kv2.value = std::to_string(output.num_factors);
-  status.values.push_back(kv2);
-
-  diagnostic_msgs::msg::KeyValue kv3;
-  kv3.key = "slip_left";
-  kv3.value = output.slip_detected_left ? "true" : "false";
-  status.values.push_back(kv3);
-
-  diagnostic_msgs::msg::KeyValue kv4;
-  kv4.key = "slip_right";
-  kv4.value = output.slip_detected_right ? "true" : "false";
-  status.values.push_back(kv4);
-
-  msg->status.push_back(status);
-  diag_pub_->publish(std::move(msg));
+  EstimatorOutput output;
+  const bool has_output = optimizer_->getLatestOutput(output);
+  const double age = has_output ? now().seconds() - output.timestamp : -1.0;
+  const bool fresh = has_output && age >= 0 && age <= input_timeout_;
+  status.level = fresh && config_.contact_geometry_calibrated ? status.OK : status.WARN;
+  status.message = fresh ? diagnostic_reason_ : "No fresh estimate: " + diagnostic_reason_;
+  auto add = [&](const std::string& key, const std::string& value) {
+    diagnostic_msgs::msg::KeyValue kv;
+    kv.key = key; kv.value = value; status.values.push_back(kv);
+  };
+  add("state_age_s", std::to_string(age));
+  add("gait_contact_valid", has_output && output.contact_state != ContactState::UNKNOWN ? "true" : "false");
+  add("optimize_time_ms", std::to_string(output.optimize_time_ms));
+  add("num_factors", std::to_string(output.num_factors));
+  add("num_states", std::to_string(output.num_states));
+  add("left_landmark", std::to_string(output.left_landmark));
+  add("right_landmark", std::to_string(output.right_landmark));
+  msg.status.push_back(status);
+  diag_pub_->publish(msg);
+  if (!fresh) {
+    publishContactState(ContactState::UNKNOWN);
+    std_msgs::msg::UInt8 stable;
+    stable.data = static_cast<uint8_t>(ContactState::UNKNOWN);
+    stable_support_pub_->publish(stable);
+  }
 }
 
 void CTExoStateNode::publishTF(const EstimatorOutput& output) {
   geometry_msgs::msg::TransformStamped tf;
-  tf.header.stamp = this->now();
+  tf.header.stamp = messageTime(output.timestamp);
   tf.header.frame_id = world_frame_;
   tf.child_frame_id = pelvis_frame_;
-
   tf.transform.translation.x = output.pose.x();
   tf.transform.translation.y = output.pose.y();
   tf.transform.translation.z = output.pose.z();
-
-  gtsam::Quaternion q = output.pose.rotation().toQuaternion();
+  const auto q = output.pose.rotation().toQuaternion();
   tf.transform.rotation.w = q.w();
   tf.transform.rotation.x = q.x();
   tf.transform.rotation.y = q.y();
   tf.transform.rotation.z = q.z();
-
   tf_broadcaster_->sendTransform(tf);
 }
 

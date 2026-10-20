@@ -35,7 +35,6 @@ constexpr uint8_t CMD_MOTOR_SET_TARGET  = 0x11;
 constexpr uint8_t CMD_MOTOR_ENABLE      = 0x12;
 constexpr uint8_t CMD_MOTOR_CALIBRATE    = 0x13;
 constexpr uint8_t CMD_MOTOR_RAW_FEEDBACK = 0x15;
-constexpr uint8_t CMD_MOTOR_CLEAR_ERROR  = 0x9B;
 
 // 控制模式 (CMD_MOTOR_SET_TARGET 的 mode 字段)
 constexpr uint8_t MODE_POSITION = 0;  // 位置控制, value = rad
@@ -138,15 +137,13 @@ public:
   static int32_t ankle_count_from_zero(uint16_t raw_count, uint16_t zero_offset);
 
 private:
+  friend class HardwareInterfaceTestAccess;
   bool open_serial(const std::string & port);
   void close_serial();
   bool configure_serial();
 
   // 发送命令帧: STX_REQ | CMD | LEN | DATA... | CHK
   bool send_command(uint8_t cmd, const uint8_t * data, uint8_t len);
-
-  // 发送马达使能命令
-  bool send_enable_cmd(uint8_t motor_id);
 
   // 接收一帧反馈数据
   bool recv_feedback(
@@ -156,7 +153,7 @@ private:
   // 扫描 /dev/ttyACM* 找到 STM32 设备, 验证后返回路径
   std::string find_stm32_port();
 
-  // 尝试重连: 扫描→打开→配置→清错→使能
+  // 尝试重连: 扫描→打开→配置；电机上电初始化由STM32负责
   bool try_reconnect();
 
   // 从 motor_map_file (YAML) 加载 关节↔电机ID + 方向符号
@@ -166,9 +163,6 @@ private:
   // 断开时清理并准备重连
   void handle_disconnect();
 
-  // 初始化连接(首次或重连成功): 清除错误 + 使能马达
-  void init_motors();
-
   // ---- 参数 ----
   std::string serial_port_;      // 端口: "auto" 或具体路径如 /dev/ttyACM0
   int baud_rate_;
@@ -176,6 +170,7 @@ private:
   double torque_limit_;          // 力矩限幅
   double current_limit_;         // 电流限幅 [A]
   bool use_mock_{false};         // 仿真模式
+  bool read_only_{false};        // No enable/clear/target commands.
   std::array<int8_t, NUM_JOINTS> joint_sign_{};  // 关节方向符号 ±1 (来自 exo_motor_map.yaml)
   std::array<uint8_t, NUM_JOINTS> motor_id_{};   // 关节→电机ID (来自 exo_motor_map.yaml)
   std::array<std::string, NUM_ANKLE_ENCODERS> ankle_names_{

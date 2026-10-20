@@ -1,69 +1,79 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
-#include <string>
-#include <vector>
+#include <deque>
 
 namespace exo_state_estimator {
 
+// Physical contact mask; UNKNOWN is distinct from confirmed no contact.
 enum class ContactState : uint8_t {
-  SWING = 0,        // 摆动
-  RIGHT_STANCE = 1, // 右脚支撑
-  LEFT_STANCE = 2,  // 左脚支撑
-  DOUBLE_STANCE = 3 // 双脚支撑
+  SWING = 0,
+  RIGHT_STANCE = 1,
+  LEFT_STANCE = 2,
+  DOUBLE_STANCE = 3,
+  UNKNOWN = 4
 };
 
-struct ContactDetectionInput {
-  // 小腿 IMU 加速度 (可选)
-  double accel_shank_left_z = 0.0;
-  double accel_shank_right_z = 0.0;
-  // FK 计算的足端速度 (可选)
-  double foot_vel_left_z = 0.0;
-  double foot_vel_right_z = 0.0;
-  // CPG 状态 (可选，可用于辅助判断)
-  std::string cpg_state;
-  // 关节力矩 (可选)
-  std::vector<double> joint_torques;
+enum class GaitEventType : uint8_t {
+  HEEL_CONTACT = 1, HEEL_OFF = 2, TOE_CONTACT = 3, TOE_OFF = 4,
+  FULL_FOOT_CONTACT = 5, INITIAL_CONTACT = 6, FINAL_CONTACT_OFF = 7
 };
 
-struct ContactDetectionOutput {
-  ContactState state;
-  double confidence_right;  // 右脚支撑置信度 [0,1]
-  double confidence_left;   // 左脚支撑置信度 [0,1]
+struct FootSupport {
+  bool valid = false;
+  bool stable = false;
+  bool contact = false;
+  uint64_t session = 0;
 };
 
-// 接触检测器接口 (抽象基类)
-// 具体实现方式由用户决定：阈值法、学习法、IMU+FK融合法等
-class ContactDetector {
+struct SupportState {
+  FootSupport left;
+  FootSupport right;
+  ContactState state() const;
+  ContactState stableState() const;
+};
+
+// Events open/close support intervals; state observations confirm freshness.
+// The estimator queries in measurement-time order after a short fusion delay.
+class GaitContactTracker {
  public:
-  virtual ~ContactDetector() = default;
-
-  virtual void reset() = 0;
-  virtual ContactDetectionOutput detect(const ContactDetectionInput& input) = 0;
-  virtual std::string getName() const = 0;
-};
-
-// 简单阈值检测器 (默认实现，用于测试)
-class ThresholdContactDetector : public ContactDetector {
- public:
-  struct Config {
-    double accel_threshold = 2.0;   // m/s^2, 超过此值认为可能触地
-    double vel_threshold = 0.05;    // m/s, 低于此值认为静止
-    double hysteresis = 0.1;        // 迟滞系数
-    int min_stance_frames = 3;      // 最少连续支撑帧数
-  };
-
-  explicit ThresholdContactDetector(const Config& config);
-
-  void reset() override;
-  ContactDetectionOutput detect(const ContactDetectionInput& input) override;
-  std::string getName() const override { return "threshold"; }
+  explicit GaitContactTracker(double timeout = 0.15, double min_confidence = 0.8);
+  bool addEvent(double stamp, uint8_t foot, GaitEventType event, uint64_t id,
+                bool valid, double confidence);
+  bool addObservation(double stamp, uint8_t foot, bool contact, bool stable,
+                      bool valid, double confidence);
+  SupportState at(double stamp);
+  void reset();
+  bool lastRejectionWasLate() const { return late_rejection_; }
 
  private:
-  Config config_;
-  ContactState prev_state_ = ContactState::SWING;
-  int right_stance_count_ = 0;
-  int left_stance_count_ = 0;
+  struct Record {
+    double stamp;
+    uint8_t foot;
+    bool is_event;
+    GaitEventType event;
+    bool stable;
+    bool contact;
+    bool valid;
+  };
+  struct Foot {
+    FootSupport support;
+    bool interval_open = false;
+    double observation_stamp = -1.0;
+    double stability_stamp = -1.0;
+    uint64_t event_id = 0;
+    bool has_event = false;
+    double event_stamp = -1.0;
+    double state_stamp = -1.0;
+  };
+  bool enqueue(const Record& record);
+  std::array<Foot, 2> feet_;
+  std::deque<Record> records_;
+  bool late_rejection_ = false;
+  double timeout_;
+  double min_confidence_;
+  double committed_stamp_ = -1.0;
 };
 
 }  // namespace exo_state_estimator

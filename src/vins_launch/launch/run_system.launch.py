@@ -1,11 +1,10 @@
-import os
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch.conditions import IfCondition
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     
@@ -32,11 +31,16 @@ def generate_launch_description():
     
     # A. 相机驱动 (只有当 start_camera=true 时才启动)
     # 这样你就不用去改 launch 文件代码来隔离相机了
-    depth_camera_pkg = get_package_share_directory('depth_camera')
     camera_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(depth_camera_pkg, 'launch', 'depth_camera.launch.py')
+            [FindPackageShare('robot_bringup'), '/launch/depth_camera.launch.py']
         ),
+        launch_arguments={
+            'camera_config': (
+                '/home/lsy/vins_ws/src/robot_bringup/config/depth_camera/'
+                'camera_high_res_debug.yaml'
+            ),
+        }.items(),
         condition=IfCondition(LaunchConfiguration('start_camera'))
     )
 

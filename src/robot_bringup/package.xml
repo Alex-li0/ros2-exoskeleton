@@ -12,6 +12,8 @@
   <exec_depend>convex_plane_decomposition_ros</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>robot_display</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>control_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>

@@ -12,8 +12,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # 依赖查找
 # ============================================================
 find_package(ament_cmake REQUIRED)
-find_package(rclcpp REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/GaitEvent.msg"
+  "msg/GaitContactState.msg"
+  DEPENDENCIES std_msgs
+)
+find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -25,6 +31,7 @@ find_package(grid_map_ros REQUIRED)
 find_package(urdf REQUIRED)
 find_package(kdl_parser REQUIRED)
 find_package(GTSAM REQUIRED)
+find_package(GTSAM_UNSTABLE REQUIRED)
 find_package(orocos_kdl REQUIRED)
 
 # ============================================================
@@ -46,6 +53,7 @@ add_library(exo_state_lib SHARED
 )
 target_link_libraries(exo_state_lib
   gtsam
+  gtsam_unstable
   ${orocos_kdl_LIBRARIES}
 )
 ament_target_dependencies(exo_state_lib
@@ -66,6 +74,8 @@ add_executable(ct_exo_state_node
   src/ct_exo_state_node.cpp
 )
 target_link_libraries(ct_exo_state_node exo_state_lib)
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_typesupport_cpp)
+target_link_libraries(ct_exo_state_node "${cpp_typesupport_target}")
 
 # grid_map_core 的 Eigen 插件需要在编译时定义
 # 不用 find_package(grid_map_core) 避免全局 add_definitions
@@ -119,8 +129,21 @@ install(DIRECTORY config launch
 # 测试
 # ============================================================
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_estimator test/test_estimator.cpp)
+  target_link_libraries(test_estimator exo_state_lib)
+  ament_target_dependencies(test_estimator nav_msgs urdf kdl_parser)
+  target_compile_definitions(test_estimator PRIVATE
+    TEST_URDF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../robot_display/urdf/robot_display.urdf")
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  ament_add_test(test_node_io
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/test_node_io.py"
+      --executable "$<TARGET_FILE:ct_exo_state_node>"
+    TIMEOUT 40
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
 endif()
 
+ament_export_dependencies(rosidl_default_runtime)
 ament_package()

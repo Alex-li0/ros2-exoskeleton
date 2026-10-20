@@ -15,14 +15,14 @@ class TerrainHeightLandmarkFactor : public gtsam::NoiseModelFactor1<gtsam::Point
   static constexpr double kSigmaCompliance = 0.01;
   static constexpr double kSigmaComplianceSq = kSigmaCompliance * kSigmaCompliance;
 
-  TerrainHeightLandmarkFactor(gtsam::Key l_key, double z_hat,
+  TerrainHeightLandmarkFactor(gtsam::Key l_key, const gtsam::Point3& p_map,
                               const gtsam::Vector3& n_hat, double sigma_sensor)
       : gtsam::NoiseModelFactor1<gtsam::Point3>(
             gtsam::noiseModel::Isotropic::Sigma(
                 1, std::sqrt(sigma_sensor * sigma_sensor + kSigmaComplianceSq)),
             l_key),
         n_hat_(n_hat.normalized()),
-        p_map_(gtsam::Vector3(0.0, 0.0, z_hat)) {}
+        p_map_(p_map) {}
 
   gtsam::Vector evaluateError(
       const gtsam::Point3& L_k,

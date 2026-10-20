@@ -9,7 +9,7 @@ bag_enable: 'false'
 # --- 路径配置 ---
 bag_path: "/home/lsy/vins_ws/src/vins_launch/bags/V1_01_easy" # V1_01_easy V2_01_easy MH_03_medium
 # 如果想用默认安装路径的 rviz，这里可以留空，代码会自动处理
-rviz_config_path: "/home/lsy/vins_ws/src/robot_bringup/rviz/vins_mapping.rviz"
+rviz_config_path: "/home/lsy/vins_ws/src/robot_display/rviz/vins_mapping.rviz"
 
 # --- OpenVINS 参数 ---
 namespace: "ov_msckf"

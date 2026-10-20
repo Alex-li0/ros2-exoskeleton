@@ -3,7 +3,8 @@
      Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
      For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
 <robot
-  name="exoskeleton">
+  name="exoskeleton" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="read_only" default="false"/>
 
   <!-- 虚拟根 link（无惯性），避免 KDL root link inertia 警告 -->
   <link name="virtual_world"/>
@@ -704,6 +705,7 @@
       <plugin>exoskeleton_hardware/ExoHardwareInterface</plugin>
       <param name="serial_port">auto</param>
       <param name="baud_rate">115200</param>
+      <param name="read_only">$(arg read_only)</param>
       <!-- 4 电机 (2 CAN × 2), 减速比 36:1, 16bit 编码器 -->
       <param name="reduction_ratio">36.0</param>
       <!-- 硬件层力矩安全上限 [iq], 实际限幅取 min(此值, 控制器 yaml torque_limit)

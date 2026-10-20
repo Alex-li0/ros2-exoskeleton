@@ -39,12 +39,17 @@ def generate_launch_description():
             'start_impedance_controller', default_value='true',
             description='是否加载并激活阻抗控制器'),
 
+        DeclareLaunchArgument(
+            'read_only', default_value='false',
+            description='只接收反馈；STM32也必须使用禁用电机调度的测试固件'),
+
         # robot_state_publisher（发布 URDF 到 /robot_description 和 TF）
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
             parameters=[{'robot_description': ParameterValue(
-                Command(['xacro ', LaunchConfiguration('urdf')]), value_type=str)}],
+                Command(['xacro ', LaunchConfiguration('urdf'),
+                         ' read_only:=', LaunchConfiguration('read_only')]), value_type=str)}],
             output='screen'),
 
         # ros2_control node (controller_manager + hardware interface)
@@ -53,7 +58,8 @@ def generate_launch_description():
             executable='ros2_control_node',
             parameters=[
                 {'robot_description': ParameterValue(
-                    Command(['xacro ', LaunchConfiguration('urdf')]), value_type=str)},
+                    Command(['xacro ', LaunchConfiguration('urdf'),
+                             ' read_only:=', LaunchConfiguration('read_only')]), value_type=str)},
                 LaunchConfiguration('controllers_config'),
                 {'thread_priority': 50},  # RT 调度优先级
             ],
