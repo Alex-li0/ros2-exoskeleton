@@ -24,6 +24,7 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 *.cmake
+!src/open_vins/**/cmake/*.cmake
 !CMakeLists.txt
 
 # IDE and editor files
