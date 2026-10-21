@@ -1,55 +1,129 @@
-# ROS 2 下肢外骨骼工作空间
+# ROS 2 Lower-Limb Exoskeleton
 
-面向下肢外骨骼研究的 ROS 2 Humble 工作空间，包含步态参考、阻抗控制、硬件通信、状态估计、地形感知和数据采集。
+[中文](#中文) | [English](#english)
 
-当前仓库用于私有保存与整理开发历史。许可证、资料公开范围及路径可移植性尚未全部整理完成，不能将上传完成视为公开发布准备完成。
+## 中文
 
-## 模块与实现范围
+基于 ROS 2 Humble 的下肢外骨骼研究工作空间，围绕髋膝四关节控制与多传感器感知，集成 CPG 步态生成、阻抗控制、硬件通信、状态估计、地形建图和实验数据采集。
 
-源码共 22 个 ROS 包：10 个项目顶层包，以及 12 个 OpenVINS、建图、平面分割和配套包。工作空间根目录 `docs/` 在本机完整仓库中继续通过 Git 管理，其文件和历史不包含在 GitHub 发布仓库中。
+### 主要功能
 
-| 范围 | 主要包 | 当前用途 |
-| --- | --- | --- |
-| 步态与控制 | `cpg_controller`、`exoskeleton_controllers` | CPG 关节参考、ros2_control 阻抗与虚拟管道控制 |
-| 硬件与调参 | `exoskeleton_hardware`、`impedance_tuning` | STM32 通信、关节反馈、足底采集及 Qt 调参 |
-| 状态估计 | `exo_state_estimator` | 基于 GTSAM 的融合估计与事件门控接触因子 |
-| 地形感知 | `open_vins`、`elevation_mapping_cupy` 下的算法包 | VIO、高程建图与平面分割，包含上游源码和本地移植修改 |
-| 地形调度 | `terrain_adaptive_cpg` | 带有效性检查的调度框架，实测标定模型仍待补充 |
-| 启动与录制 | `robot_bringup`、`vins_launch`、`exo_data_recorder`、`robot_display` | 模块组合、数据采集及模型显示 |
+- **步态生成**：Hopf 振荡器、傅里叶步态库、参考位置与速度输出，以及连续步态切换。
+- **人机交互控制**：基于 ros2_control 的阻抗与虚拟管道控制，支持四关节参数调节和控制分量监测。
+- **硬件接入**：STM32 USB 通信、四电机关节映射、双踝编码器反馈及独立足底压力采集。
+- **状态估计**：基于 GTSAM 因子图融合视觉惯性里程计、IMU、关节运动和接触事件。
+- **地形感知**：OpenVINS 视觉惯性估计、GPU 高程建图与平面分割，以及地形信息到 CPG 的调度接口。
+- **实验工具**：Qt 调参界面、周期指标分析、原始数据录制、话题预检和 rosbag 检查。
 
-当前控制链为 `legs_cpg → /cpg/joint_ref → ExoImpedanceController → ExoHardwareInterface → STM32`，控制输出为电机 `iq`，尚不能视为已标定的 N·m。
+### 模块组织
 
-地形调度的实现边界见[框架说明](src/terrain_adaptive_cpg/README.md)。当前未实现或未标定的能力不能作为已完成的实机地形自适应控制结果。
+| 模块 | 功能包 |
+| --- | --- |
+| 步态生成与阻抗控制 | `cpg_controller`、`exoskeleton_controllers` |
+| 硬件通信与调参 | `exoskeleton_hardware`、`impedance_tuning` |
+| 融合状态估计 | `exo_state_estimator` |
+| 地形调度框架 | `terrain_adaptive_cpg` |
+| 启动、模型与数据采集 | `robot_bringup`、`robot_display`、`vins_launch`、`exo_data_recorder` |
+| 视觉惯性估计与地形建图 | `open_vins/`、`elevation_mapping_cupy/` 下的算法及配套包 |
 
-## 环境与构建
+控制链路：
 
-当前开发系统为 Ubuntu 22.04、ROS 2 Humble。系统依赖包含 ros2_control、RealSense 驱动、OpenCV、Eigen、Ceres、GTSAM/GTSAM_UNSTABLE、grid_map，以及建图所需的 CUDA/CuPy 和 Python 库。具体依赖以各包 `package.xml`、`CMakeLists.txt` 为准；目前没有完整的依赖锁定文件或已验证的可复现容器。
+```text
+CPG 关节参考 → 阻抗控制器 → ros2_control 硬件接口 → STM32 → 电机
+```
 
-以下命令用于准备依赖后的独立源码副本；`rosdep` 未覆盖或无法解析的依赖仍需单独配置。当前不提供已验证的一键安装流程。
+控制器输出为电机 `iq` 指令。地形调度框架通过有效性、时效和置信度检查接收地形信息，默认配置保持平地步态参数。
+
+### 开发环境
+
+- Ubuntu 22.04、ROS 2 Humble、colcon。
+- ros2_control、RealSense ROS 驱动、grid_map、OpenCV、Eigen、Boost、Ceres、GTSAM（含 GTSAM_UNSTABLE）和 orocos_kdl。
+- GPU 建图使用 CUDA/CuPy，并依赖 NumPy、SciPy、Shapely 等 Python 库；调参界面使用 Qt。
+
+具体依赖见各功能包的 `package.xml` 和 `CMakeLists.txt`。安装与硬件匹配的 CUDA/CuPy、RealSense 和 GTSAM 依赖后，在工作空间根目录构建：
 
 ```bash
 source /opt/ros/humble/setup.bash
-cd /path/to/vins_ws
 rosdep install --from-paths src --ignore-src --rosdistro humble -r -y
 colcon build --symlink-install
 source install/setup.bash
 ```
 
-仓库没有包含本机的 `build/`、`install/`、`log/` 或 rosbag 数据库。部分启动文件仍使用 `/home/lsy/vins_ws/src`，在其他路径克隆后需要适配，不能直接承诺上述命令即可完整运行。安装目录中部分资源也是普通副本，不能假定所有源码配置修改都会即时生效。
+运行前，根据本机部署目录与设备连接设置 launch/YAML 中的配置路径、URDF 资源和串口参数。
 
-## 使用入口
+### 使用说明
 
-以下入口需要相应模块的依赖和配置。硬件 launch 可能连接并使能电机，不能将 CPG 停止、控制输出为零或传感器录制等同于电机已断电。连接实机前需固定机构、确认急停，并按对应调试说明检查。
+- [多关节调参](src/impedance_tuning/README.md)：关节选择、CPG/阻抗参数调节、软件零位与周期分析。
+- [原始数据采集](src/exo_data_recorder/README.md)：相机与传感器录制、话题预检及数据检查。
+- [地形调度框架](src/terrain_adaptive_cpg/README.md)：调度接口、默认配置和离线合成测试。
 
-- [调参工具](src/impedance_tuning/README.md)：关节选择、CPG/阻抗调参、软件零位与周期分析。
-- [数据采集](src/exo_data_recorder/README.md)：原始话题预检、录制与 bag 检查。
-- [地形调度与离线仿真](src/terrain_adaptive_cpg/README.md)：框架默认行为、合成测试与待采数据。
-- `robot_bringup` 的当前总入口组合相机、VINS、高程建图和平面分割；电机控制、融合估计及地形调度使用各包独立入口。
+`robot_bringup` 提供相机、VINS、高程建图与平面分割的组合入口；控制、估计与调参模块分别提供独立启动入口。
 
-## 来源、许可与发布状态
+连接实机前需固定机构、核对关节映射并确认急停有效。启动硬件接口可能使能电机；停止 CPG 或将 `iq` 设为零不等于电机断电。
 
-OpenVINS 的包清单与代码头声明 GPLv3；建图、平面分割相关算法包的包清单声明 MIT。`mapping_launch` 和项目顶层包仍有 TODO 许可字段。上游代码及其已有版权声明保留，自有部分没有在本次整理中被自动指定许可证。
+### 第三方组件
 
-论文副本、供应商手册、机器人模型和数据资源需要逐项核实来源及可公开范围；本仓库当前没有统一授予这些材料的再分发许可。公开前仍需完成许可证、资料来源、本机路径适配与独立环境构建验证；GitHub CI 尚未配置。
+本工作空间集成 OpenVINS、elevation_mapping_cupy、convex_plane_decomposition 等组件，并包含 ROS 2 接口和系统集成修改。第三方代码的版权与许可证声明保留在对应源码及功能包中。
 
-原始完整历史保留在本机仓库及离线备份中。GitHub 发布副本从全部历史排除根目录 `docs/`，保留其余文件的修改过程、提交作者、时间和说明；过滤后的提交 SHA 与本机原仓库不同。构建或离线测试结果与实机验证分别记录。
+## English
+
+A ROS 2 Humble workspace for lower-limb exoskeleton research, combining four-joint hip–knee control with multisensor perception. It brings together CPG gait generation, impedance control, hardware communication, state estimation, terrain mapping, and experimental data collection.
+
+### Features
+
+- **Gait generation:** Hopf oscillators, a Fourier gait library, joint position and velocity references, and continuous gait transitions.
+- **Human–robot interaction:** ros2_control impedance and virtual-tube control, with four-joint parameter tuning and control-component monitoring.
+- **Hardware integration:** STM32 USB communication, four-motor joint mapping, dual ankle encoder feedback, and a separate foot-pressure acquisition interface.
+- **State estimation:** GTSAM factor-graph fusion of visual–inertial odometry, IMU measurements, joint motion, and contact events.
+- **Terrain perception:** OpenVINS visual–inertial estimation, GPU elevation mapping, plane segmentation, and a terrain-to-CPG scheduling interface.
+- **Experimental tools:** a Qt tuning GUI, cycle metrics, raw-data recording, topic preflight checks, and rosbag inspection.
+
+### Workspace organization
+
+| Module | Packages |
+| --- | --- |
+| Gait generation and impedance control | `cpg_controller`, `exoskeleton_controllers` |
+| Hardware communication and tuning | `exoskeleton_hardware`, `impedance_tuning` |
+| Fused state estimation | `exo_state_estimator` |
+| Terrain scheduling framework | `terrain_adaptive_cpg` |
+| Bringup, visualization, and recording | `robot_bringup`, `robot_display`, `vins_launch`, `exo_data_recorder` |
+| Visual–inertial estimation and terrain mapping | Algorithm and support packages under `open_vins/` and `elevation_mapping_cupy/` |
+
+Control pipeline:
+
+```text
+CPG joint references → Impedance controller → ros2_control hardware interface → STM32 → Motors
+```
+
+The controller sends motor `iq` commands. The terrain scheduler checks validity, freshness, and confidence before accepting terrain inputs; its default configuration retains flat-walking gait parameters.
+
+### Development environment
+
+- Ubuntu 22.04, ROS 2 Humble, and colcon.
+- ros2_control, the RealSense ROS driver, grid_map, OpenCV, Eigen, Boost, Ceres, GTSAM with GTSAM_UNSTABLE, and orocos_kdl.
+- CUDA/CuPy for GPU mapping, Python libraries including NumPy, SciPy, and Shapely, and Qt for the tuning GUI.
+
+Package dependencies are listed in `package.xml` and `CMakeLists.txt`. Install the CUDA/CuPy, RealSense, and GTSAM dependencies for your system, then build from the workspace root:
+
+```bash
+source /opt/ros/humble/setup.bash
+rosdep install --from-paths src --ignore-src --rosdistro humble -r -y
+colcon build --symlink-install
+source install/setup.bash
+```
+
+Before launching, configure the resource paths, URDF files, and serial ports in launch files and YAML configurations for your deployment.
+
+### Usage
+
+- [Multi-joint tuning](src/impedance_tuning/README.md): joint selection, CPG and impedance parameters, software zero offsets, and cycle analysis.
+- [Raw-data recording](src/exo_data_recorder/README.md): camera and sensor recording, topic preflight checks, and data inspection.
+- [Terrain scheduling](src/terrain_adaptive_cpg/README.md): interfaces, default settings, and synthetic offline tests.
+
+`robot_bringup` combines the camera, VINS, elevation mapping, and plane segmentation. Control, estimation, and tuning modules provide their own launch entry points.
+
+Secure the mechanism, verify joint mapping, and check the emergency stop before connecting hardware. Starting the hardware interface may enable motors; stopping the CPG or setting `iq` to zero does not disconnect motor power.
+
+### Third-party components
+
+This workspace integrates OpenVINS, elevation_mapping_cupy, convex_plane_decomposition, and related components, alongside ROS 2 interfaces and system integration changes. Third-party copyright and license notices are retained in the corresponding source files and packages.
