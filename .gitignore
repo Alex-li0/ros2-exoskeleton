@@ -54,3 +54,7 @@ compile_commands.json
 control_monitor_*.png
 control_monitor_stats.txt
 .mimocode/
+
+# 中间件
+tmp/
+output/
