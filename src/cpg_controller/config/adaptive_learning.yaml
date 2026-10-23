@@ -1,0 +1,11 @@
+/**:
+  ros__parameters:
+    # Shadow experiment only; the production legs_cpg remains a separate node.
+    enable_learning: false
+    shape_enabled: true
+    shape_requires_lock: true  # false: common phase/frequency/shape adaptation during valid capture
+    events_enabled: false
+    measurement_timeout: 0.1
+    # Synthetic event coordinates only: physical IC phases require calibration
+    # against flat_walk's Fourier origin before events can be used on recordings.
+    event_phases: [0.0, 3.141592653589793]

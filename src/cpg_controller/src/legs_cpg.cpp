@@ -2,8 +2,8 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
-#include <tf2_ros/transform_listener.h>
-#include <tf2_ros/buffer.h>
+#include "cpg_controller/reference_math.hpp"
+#include "cpg_controller/learning_interface.hpp"
 #include <terrain_adaptive_cpg/msg/cpg_debug.hpp>
 #include <terrain_adaptive_cpg/msg/cpg_parameter_target.hpp>
 #include <map>
@@ -13,9 +13,10 @@
 #include <algorithm>
 
 using namespace std::chrono_literals;
+using cpg_controller::Sample;
 
 // ==================== CPG 状态机枚举 ====================
-// IDLE      : 静止态，输出全零（各关节在 w_offset 位置）
+// IDLE      : 静止态，输出全零（不等同于控制器零电流）
 // STARTING  : 启动态，振幅从 0 平滑上升到 1（渐入）
 // WALKING   : 行走态，振幅 = 1，全振幅输出
 // STOPPING  : 停止态，振幅从 1 平滑下降到 0（渐出）
@@ -33,7 +34,7 @@ enum class CPGState
 struct JointModel
 {
     int num_harmonics;       // 2: 常数+基频, 3: 常数+基频+2倍频...
-    double w_offset;         // w0 — 也是站立静止时的关节目标角
+    double w_offset;         // 周期轨迹的直流分量；IDLE 输出为零
     std::vector<double> w_x; // 各阶 cos 权重
     std::vector<double> w_y; // 各阶 sin 权重
     double limit_min, limit_max;
@@ -65,12 +66,15 @@ public:
         // 1. 声明全局参数（不含 omega，omega 属于每个 gait mode）
         this->declare_parameter("mu", 1.0);
         this->declare_parameter("gamma", 10.0);
-        this->declare_parameter("eta_w", 0.01);
-        this->declare_parameter("eta_omega", 0.005);
+        this->declare_parameter("eta_w", 0.0);
+        this->declare_parameter("eta_omega", 0.0);
         this->declare_parameter("ramp_time", 0.5);
         this->declare_parameter("initial_perturbation", 0.1);
         this->declare_parameter("publish_ankle", true);
         this->declare_parameter("parameter_target_timeout_s", 0.0);
+        this->declare_parameter("modulation_transition_s", 0.5);
+        this->declare_parameter("observe_measurements", false);
+        this->declare_parameter("measurement_timeout_s", 0.1);
 
         // 2. 加载 Gait Library
         joint_names_ = {"left_hip3", "left_knee", "left_ankle",
@@ -96,6 +100,8 @@ public:
 
             GaitMode mode;
             mode.omega = this->get_parameter(prefix + "omega").as_double();
+            if (!std::isfinite(mode.omega) || mode.omega <= 0.0)
+                throw std::runtime_error("Invalid gait frequency: " + mode_name);
 
             for (const auto &jname : joint_names_)
             {
@@ -105,6 +111,8 @@ public:
                 this->declare_parameter(jp + "limit_max", 1.5);
 
                 int n_h = this->get_parameter(jp + "num_harmonics").as_int();
+                if (n_h < 2 || n_h > 4)
+                    throw std::runtime_error("num_harmonics must be 2..4: " + jp);
                 this->declare_parameter(jp + "w_offset", 0.0);
                 this->declare_parameter(jp + "w_x", std::vector<double>(n_h, 0.0));
                 this->declare_parameter(jp + "w_y", std::vector<double>(n_h, 0.0));
@@ -116,6 +124,12 @@ public:
                 m.w_offset = this->get_parameter(jp + "w_offset").as_double();
                 m.w_x = this->get_parameter(jp + "w_x").as_double_array();
                 m.w_y = this->get_parameter(jp + "w_y").as_double_array();
+                if (m.w_x.size() != static_cast<size_t>(n_h) || m.w_y.size() != static_cast<size_t>(n_h) ||
+                    !std::isfinite(m.w_offset) || !std::isfinite(m.limit_min) ||
+                    !std::isfinite(m.limit_max) || m.limit_min >= m.limit_max ||
+                    !std::all_of(m.w_x.begin(), m.w_x.end(), [](double v) { return std::isfinite(v); }) ||
+                    !std::all_of(m.w_y.begin(), m.w_y.end(), [](double v) { return std::isfinite(v); }))
+                    throw std::runtime_error("Invalid joint model: " + jp);
                 mode.joints[jname] = m;
             }
 
@@ -132,12 +146,27 @@ public:
             throw std::runtime_error("Invalid default_gait");
         }
         current_gait_name_ = default_gait;
-        current_gait_ = &gait_library_[current_gait_name_];
+        active_gait_ = gait_library_.at(current_gait_name_);
+        current_gait_ = &active_gait_;
         RCLCPP_INFO(this->get_logger(), "默认 gait mode: '%s'", current_gait_name_.c_str());
 
         // 3. ROS 话题
-        tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
-        tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+        measurement_timeout_s_ = get_parameter("measurement_timeout_s").as_double();
+        if (!std::isfinite(measurement_timeout_s_) || measurement_timeout_s_ <= 0.0)
+            throw std::runtime_error("measurement_timeout_s must be positive");
+        if (get_parameter("observe_measurements").as_bool())
+        {
+            // Deliberately distinct from /joint_states: display remapping must not affect input.
+            measurement_sub_ = create_subscription<sensor_msgs::msg::JointState>(
+                "/cpg/measured_joint_states", rclcpp::SensorDataQoS(),
+                [this](sensor_msgs::msg::JointState::ConstSharedPtr msg) {
+                    if (msg->header.stamp.sec < 0 || msg->header.stamp.nanosec >= 1000000000u)
+                        return;
+                    const double stamp = rclcpp::Time(msg->header.stamp).seconds();
+                    measurements_.accept(msg->name, msg->position, stamp, now().seconds(),
+                        measurement_timeout_s_, joint_names_);
+                });
+        }
 
         cpg_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>(
             "/position_controller/commands", 10);
@@ -145,6 +174,11 @@ public:
             "/joint_states", 10);
         cpg_ref_pub_ = this->create_publisher<sensor_msgs::msg::JointState>(
             "/cpg/joint_ref", 10);
+
+        if (measurement_sub_ &&
+            (std::string(measurement_sub_->get_topic_name()) == joint_state_pub_->get_topic_name() ||
+             std::string(measurement_sub_->get_topic_name()) == cpg_ref_pub_->get_topic_name()))
+            throw std::runtime_error("Measurement input must not alias CPG reference/display output");
 
         state_cmd_sub_ = this->create_subscription<std_msgs::msg::String>(
             "/cpg/state_cmd", 10,
@@ -164,7 +198,6 @@ public:
         // 4. 初始化状态机
         cpg_state_ = CPGState::IDLE;
         amplitude_factor_ = 0.0;
-        stop_start_amplitude_ = 1.0;
         ramp_start_time_ = this->now();
 
         // 5. 初始化振荡器（IDLE 状态下冻结为零态）
@@ -176,11 +209,6 @@ public:
         // CPG 积分定时器: 500Hz (2ms)
         cpg_timer_ = this->create_wall_timer(2ms,
             std::bind(&AdaptiveCPGNode::cpg_timer_callback, this));
-        // 参数更新定时器: 100Hz (10ms)
-        param_timer_ = this->create_wall_timer(10ms,
-            std::bind(&AdaptiveCPGNode::param_timer_callback, this));
-        param_timer_active_ = true;
-
         last_time_ = this->now();
         last_parameter_target_time_ = this->now();
         amplitude_scales_.assign(joint_names_.size(), 1.0);
@@ -201,6 +229,24 @@ private:
         last_time_ = now;
         if (dt <= 0.0 || dt > 0.1) dt = 0.002;  // 默认 2ms (500Hz)
         update_modulation_status(now);
+        omega_scale_ = omega_modulation_.sample(now.seconds()).value;
+        for (size_t j = 0; j < joint_names_.size(); ++j) {
+            amplitude_scales_[j] = amplitude_modulation_[j].sample(now.seconds()).value;
+            offset_deltas_[j] = offset_modulation_[j].sample(now.seconds()).value;
+        }
+        // Complete a mode transition independently of a concurrent stop envelope.
+        if (switch_active_ && compute_switch_progress(now).value >= 1.0) {
+            current_gait_name_ = switch_target_gait_;
+            active_gait_ = *switch_target_gait_ptr_;
+            omega_ = active_gait_.omega;
+            switch_active_ = false;
+            auto mode = std_msgs::msg::String(); mode.data = current_gait_name_;
+            gait_mode_pub_->publish(mode);
+            if (cpg_state_ == CPGState::SWITCHING) {
+                cpg_state_ = CPGState::WALKING;
+                publish_state("WALKING");
+            }
+        }
 
         // --- 2. IDLE 状态：冻结振荡器，输出 0 位 (站立静止) ---
         if (cpg_state_ == CPGState::IDLE)
@@ -239,15 +285,16 @@ private:
         }
 
         // --- 3. 计算切换进度 & 插值 omega（必须在积分之前） ---
+        Sample switch_sample{1.0, 0.0};
         double switch_alpha = 1.0;
         double omega_current = omega_;
-        if (cpg_state_ == CPGState::SWITCHING)
+        if (switch_active_)
         {
-            switch_alpha = compute_switch_progress();
+            switch_sample = compute_switch_progress(now);
+            switch_alpha = switch_sample.value;
             omega_current = (1.0 - switch_alpha) * switch_old_omega_ + switch_alpha * switch_new_omega_;
         }
-        if (continuous_modulation_active_)
-            omega_current *= omega_scale_;
+        omega_current *= omega_scale_;
 
         // --- 4. 振荡器自由运行 ---
         // 使用子步长积分 (与 optimizer 的 sample_cpg_one_cycle 完全一致)
@@ -264,90 +311,21 @@ private:
             }
         }
 
-        // --- 5. 计算谐波时间导数（用于关节速度输出） ---
-        {
-            double r2_final = x_ * x_ + y_ * y_;
-            double dx_final = gamma_ * (mu_ - r2_final) * x_ - omega_current * y_;
-            double dy_final = gamma_ * (mu_ - r2_final) * y_ + omega_current * x_;
-
-            dhx_[1] = dx_final;
-            dhy_[1] = dy_final;
-
-            if (max_h_ >= 2)
-            {
-                dhx_[2] = 2.0 * (x_ * dx_final - y_ * dy_final);
-                dhy_[2] = 2.0 * (dx_final * y_ + x_ * dy_final);
-            }
-
-            if (max_h_ >= 3)
-            {
-                double x2_y2 = x_ * x_ - y_ * y_;
-                dhx_[3] = 3.0 * dx_final * x2_y2 - 6.0 * x_ * y_ * dy_final;
-                dhy_[3] = 6.0 * x_ * y_ * dx_final + 3.0 * dy_final * x2_y2;
-            }
-        }
-
-        // --- 6. 计算振幅因子 A(t) 和其导数 dA/dt ---
-        amplitude_factor_ = compute_amplitude_factor();
-        double d_amplitude_dt = compute_d_amplitude_dt(dt);
-
-        // --- 6. 状态转换检测 ---
-        if (cpg_state_ == CPGState::STARTING && amplitude_factor_ >= 0.999)
-        {
-            amplitude_factor_ = 1.0;
+        const double r2 = x_ * x_ + y_ * y_;
+        const auto basis = cpg_controller::harmonics(x_, y_,
+            gamma_ * (mu_ - r2) * x_ - omega_current * y_,
+            gamma_ * (mu_ - r2) * y_ + omega_current * x_);
+        const auto envelope = cpg_controller::constrain(amplitude_envelope_.sample(now.seconds()),
+            {0.0, 0.0}, {1.0, 0.0});
+        amplitude_factor_ = envelope.value;
+        const double elapsed = (now - ramp_start_time_).seconds();
+        if (cpg_state_ == CPGState::STARTING && elapsed >= ramp_time_) {
             cpg_state_ = CPGState::WALKING;
             publish_state("WALKING");
-            // 启动参数更新定时器
-            activate_param_timer();
-            RCLCPP_INFO(this->get_logger(), "CPG 已完全启动，进入 WALKING 状态");
-        }
-        else if (cpg_state_ == CPGState::STOPPING && amplitude_factor_ <= 0.001)
-        {
-            amplitude_factor_ = 0.0;
+        } else if (cpg_state_ == CPGState::STOPPING && elapsed >= ramp_time_) {
             cpg_state_ = CPGState::IDLE;
-            x_ = 0.0;
-            y_ = 0.0;
-            // 停止参数更新定时器
-            deactivate_param_timer();
+            x_ = y_ = 0.0;
             publish_state("IDLE");
-            RCLCPP_INFO(this->get_logger(), "CPG 已完全停止，进入 IDLE 状态");
-        }
-
-        // --- 7. 高阶谐波生成 ---
-        hx_[1] = x_;
-        hy_[1] = y_;
-
-        if (max_h_ >= 2)
-        {
-            hx_[2] = x_ * x_ - y_ * y_;
-            hy_[2] = 2.0 * x_ * y_;
-        }
-
-        if (max_h_ >= 3)
-        {
-            hx_[3] = x_ * (x_ * x_ - 3.0 * y_ * y_);
-            hy_[3] = y_ * (3.0 * x_ * x_ - y_ * y_);
-        }
-
-        // --- 8. 切换完成检测（switch_alpha 已在 step 3 计算） ---
-        if (cpg_state_ == CPGState::SWITCHING && switch_alpha >= 1.0)
-        {
-            current_gait_name_ = switch_target_gait_;
-            current_gait_ = switch_target_gait_ptr_;
-            omega_ = switch_new_omega_;
-
-            auto out = std_msgs::msg::String();
-            out.data = current_gait_name_;
-            gait_mode_pub_->publish(out);
-
-            cpg_state_ = CPGState::WALKING;
-            publish_state("WALKING");
-
-            // 切换完成，重新启动参数更新定时器
-            activate_param_timer();
-
-            RCLCPP_INFO(this->get_logger(), "Gait mode 平滑过渡完成: '%s' (omega=%.3f)",
-                        current_gait_name_.c_str(), omega_);
         }
 
         // --- 9. 遍历关节：计算输出 ---
@@ -368,83 +346,47 @@ private:
         {
             auto &m = current_gait_->joints[name];
 
-            // 插值权重
-            double w_off_cur = m.w_offset;
-            double wx1 = 0.0, wx2 = 0.0, wx3 = 0.0;
-            double wy1 = 0.0, wy2 = 0.0, wy3 = 0.0;
-
-            if (cpg_state_ == CPGState::SWITCHING && switch_old_weights_.count(name))
-            {
-                auto &old_w = switch_old_weights_[name];
-                auto &new_w = switch_new_weights_[name];
-                double a = switch_alpha;
-
-                auto interp = [&](const std::vector<double> &ov, const std::vector<double> &nv, int i) -> double {
-                    double o = (i < (int)ov.size()) ? ov[i] : 0.0;
-                    double n = (i < (int)nv.size()) ? nv[i] : 0.0;
-                    return (1.0 - a) * o + a * n;
-                };
-
-                w_off_cur = (1.0 - a) * old_w.w_offset + a * new_w.w_offset;
-                wx1 = interp(old_w.w_x, new_w.w_x, 1);
-                wx2 = interp(old_w.w_x, new_w.w_x, 2);
-                wx3 = interp(old_w.w_x, new_w.w_x, 3);
-                wy1 = interp(old_w.w_y, new_w.w_y, 1);
-                wy2 = interp(old_w.w_y, new_w.w_y, 2);
-                wy3 = interp(old_w.w_y, new_w.w_y, 3);
+            auto coefficients = [](const auto &model) {
+                cpg_controller::Coefficients result;
+                result.offset.value = model.w_offset;
+                for (size_t n = 1; n <= 3; ++n) {
+                    result.x[n].value = n < model.w_x.size() ? model.w_x[n] : 0.0;
+                    result.y[n].value = n < model.w_y.size() ? model.w_y[n] : 0.0;
+                }
+                return result;
+            };
+            auto w = coefficients(m);
+            Sample low{m.limit_min, 0.0}, high{m.limit_max, 0.0};
+            if (switch_active_) {
+                const auto &old = switch_old_weights_.at(name);
+                const auto &next = switch_new_weights_.at(name);
+                const auto a = coefficients(old), b = coefficients(next);
+                w.offset = cpg_controller::blend(a.offset, b.offset, switch_sample);
+                for (size_t n = 1; n <= 3; ++n) {
+                    w.x[n] = cpg_controller::blend(a.x[n], b.x[n], switch_sample);
+                    w.y[n] = cpg_controller::blend(a.y[n], b.y[n], switch_sample);
+                }
+                // Moving limits avoid a union-of-limits jump at transition completion.
+                low = cpg_controller::blend({old.limit_min, 0}, {next.limit_min, 0}, switch_sample);
+                high = cpg_controller::blend({old.limit_max, 0}, {next.limit_max, 0}, switch_sample);
             }
-            else
-            {
-                if (1 < (int)m.w_x.size()) { wx1 = m.w_x[1]; }
-                if (2 < (int)m.w_x.size()) { wx2 = m.w_x[2]; }
-                if (3 < (int)m.w_x.size()) { wx3 = m.w_x[3]; }
-                if (1 < (int)m.w_y.size()) { wy1 = m.w_y[1]; }
-                if (2 < (int)m.w_y.size()) { wy2 = m.w_y[2]; }
-                if (3 < (int)m.w_y.size()) { wy3 = m.w_y[3]; }
-            }
-
             const size_t joint_index = dbg_w_off.size();
-            if (continuous_modulation_active_)
-            {
-                w_off_cur += offset_deltas_[joint_index];
-                wx1 *= amplitude_scales_[joint_index];
-                wx2 *= amplitude_scales_[joint_index];
-                wx3 *= amplitude_scales_[joint_index];
-                wy1 *= amplitude_scales_[joint_index];
-                wy2 *= amplitude_scales_[joint_index];
-                wy3 *= amplitude_scales_[joint_index];
+            w.offset = w.offset + offset_modulation_[joint_index].sample(now.seconds());
+            const auto scale = amplitude_modulation_[joint_index].sample(now.seconds());
+            for (size_t n = 1; n <= 3; ++n) {
+                w.x[n] = w.x[n] * scale;
+                w.y[n] = w.y[n] * scale;
             }
-
-            // 计算 theta（clamp 前）
-            double theta_interp = w_off_cur;
-            theta_interp += wx1 * hx_[1] + wy1 * hy_[1];
-            theta_interp += wx2 * hx_[2] + wy2 * hy_[2];
-            theta_interp += wx3 * hx_[3] + wy3 * hy_[3];
-
-            // 振幅调制
-            double output = amplitude_factor_ * theta_interp;
-
-            // 计算关节速度: d(A*theta)/dt = A * dtheta/dt + theta * dA/dt
-            double dtheta = wx1 * dhx_[1] + wy1 * dhy_[1];
-            if (max_h_ >= 2) dtheta += wx2 * dhx_[2] + wy2 * dhy_[2];
-            if (max_h_ >= 3) dtheta += wx3 * dhx_[3] + wy3 * dhy_[3];
-            double velocity = amplitude_factor_ * dtheta + d_amplitude_dt * theta_interp;
-            joint_velocities.push_back(velocity);
-
-            // 限位
-            double lim_min = m.limit_min;
-            double lim_max = m.limit_max;
-            if (cpg_state_ == CPGState::SWITCHING && switch_old_weights_.count(name))
-            {
-                lim_min = std::min(switch_old_weights_[name].limit_min, switch_new_weights_[name].limit_min);
-                lim_max = std::max(switch_old_weights_[name].limit_max, switch_new_weights_[name].limit_max);
-            }
-            output = std::clamp(output, lim_min, lim_max);
-
-            bool is_ankle = (name.find("ankle") != std::string::npos);
-            double cmd_output = output;
-            if (is_ankle && !publish_ankle_)
-                cmd_output = 0.0;
+            const auto theta = cpg_controller::readout(w, basis);
+            auto reference = cpg_controller::constrain(envelope * theta, envelope * low, envelope * high);
+            const bool is_ankle = name.find("ankle") != std::string::npos;
+            if (is_ankle && !publish_ankle_) reference = {};
+            const double output = reference.value, cmd_output = output;
+            joint_velocities.push_back(reference.rate);
+            const double theta_interp = theta.value;
+            const double w_off_cur = w.offset.value;
+            const double wx1 = w.x[1].value, wx2 = w.x[2].value, wx3 = w.x[3].value;
+            const double wy1 = w.y[1].value, wy2 = w.y[2].value, wy3 = w.y[3].value;
 
             cmd_msg.data.push_back(cmd_output);
             js_msg.name.push_back(name);
@@ -498,9 +440,18 @@ private:
 
     void parameter_target_callback(const terrain_adaptive_cpg::msg::CPGParameterTarget::SharedPtr msg)
     {
-        last_parameter_target_time_ = this->now();
-        continuous_modulation_active_ = false;
-        if (!msg->continuous_modulation_enabled || parameter_target_timeout_s_ <= 0.0)
+        const auto received = this->now();
+        if (msg->stamp.sec < 0 || msg->stamp.nanosec >= 1000000000u) return;
+        const double stamp = rclcpp::Time(msg->stamp).seconds();
+        if (!std::isfinite(stamp) || stamp <= 0.0 || stamp <= last_parameter_stamp_ ||
+            stamp > received.seconds() || received.seconds() - stamp > parameter_target_timeout_s_)
+            return;
+        if (!msg->continuous_modulation_enabled) {
+            last_parameter_stamp_ = stamp;
+            reset_modulation(received.seconds());
+            return;
+        }
+        if (parameter_target_timeout_s_ <= 0.0)
             return;
         if (!msg->omega_scale_valid || !std::isfinite(msg->omega_scale) || msg->omega_scale <= 0.0)
             return;
@@ -510,6 +461,9 @@ private:
             msg->joint_names.size() != msg->offset_delta_valid.size())
             return;
 
+        if (msg->joint_names.size() != joint_names_.size()) return;
+        for (const auto &name : msg->joint_names)
+            if (std::count(msg->joint_names.begin(), msg->joint_names.end(), name) != 1) return;
         std::vector<double> next_amplitude(joint_names_.size(), 1.0);
         std::vector<double> next_offset(joint_names_.size(), 0.0);
         for (size_t i = 0; i < joint_names_.size(); ++i)
@@ -524,9 +478,13 @@ private:
             next_amplitude[i] = msg->amplitude_scale[index];
             next_offset[i] = msg->offset_delta[index];
         }
-        omega_scale_ = msg->omega_scale;
-        amplitude_scales_ = std::move(next_amplitude);
-        offset_deltas_ = std::move(next_offset);
+        last_parameter_target_time_ = rclcpp::Time(msg->stamp);
+        last_parameter_stamp_ = stamp;
+        omega_modulation_.set(msg->omega_scale, received.seconds(), modulation_transition_s_);
+        for (size_t j = 0; j < joint_names_.size(); ++j) {
+            amplitude_modulation_[j].set(next_amplitude[j], received.seconds(), modulation_transition_s_);
+            offset_modulation_[j].set(next_offset[j], received.seconds(), modulation_transition_s_);
+        }
         continuous_modulation_active_ = true;
     }
 
@@ -536,12 +494,19 @@ private:
             (parameter_target_timeout_s_ <= 0.0 ||
              (now - last_parameter_target_time_).seconds() > parameter_target_timeout_s_))
         {
-            continuous_modulation_active_ = false;
-            omega_scale_ = 1.0;
-            std::fill(amplitude_scales_.begin(), amplitude_scales_.end(), 1.0);
-            std::fill(offset_deltas_.begin(), offset_deltas_.end(), 0.0);
+            reset_modulation(now.seconds());
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                 "CPG 参数目标超时，回退到当前 gait library 的已验证参数");
+        }
+    }
+
+    void reset_modulation(double now)
+    {
+        continuous_modulation_active_ = false;
+        omega_modulation_.set(1.0, now, modulation_transition_s_);
+        for (size_t j = 0; j < joint_names_.size(); ++j) {
+            amplitude_modulation_[j].set(1.0, now, modulation_transition_s_);
+            offset_modulation_[j].set(0.0, now, modulation_transition_s_);
         }
     }
 
@@ -607,52 +572,6 @@ private:
         cpg_debug_pub_->publish(msg);
     }
 
-    // ==================== 参数更新定时器回调 (100Hz) ====================
-    void param_timer_callback()
-    {
-        if (!param_timer_active_) return;
-
-        double dt = 0.01;  // 100Hz = 10ms
-
-        for (const auto &name : joint_names_)
-        {
-            auto &m = current_gait_->joints[name];
-
-            // 计算当前输出
-            double theta_interp = m.w_offset;
-            for (int i = 1; i < m.num_harmonics; ++i)
-            {
-                theta_interp += m.w_x[i] * hx_[i] + m.w_y[i] * hy_[i];
-            }
-
-            // 学习（eta_w=0 时不影响输出）
-            double theta_target = get_target_from_tf(name, theta_interp);
-            double error = theta_target - theta_interp;
-            m.w_offset += eta_w_ * error * dt;
-            for (int i = 1; i < m.num_harmonics; ++i)
-            {
-                m.w_x[i] += eta_w_ * error * hx_[i] * dt;
-                m.w_y[i] += eta_w_ * error * hy_[i] * dt;
-            }
-
-            if (name == "left_hip3")
-                omega_ += eta_omega_ * error * hy_[1] * dt;
-        }
-    }
-
-    // ==================== 参数更新定时器控制 ====================
-    void activate_param_timer()
-    {
-        param_timer_active_ = true;
-        RCLCPP_DEBUG(this->get_logger(), "参数更新定时器已激活");
-    }
-
-    void deactivate_param_timer()
-    {
-        param_timer_active_ = false;
-        RCLCPP_DEBUG(this->get_logger(), "参数更新定时器已停止");
-    }
-
     // ==================== 启停指令回调 ====================
     void state_cmd_callback(const std_msgs::msg::String::SharedPtr msg)
     {
@@ -672,20 +591,17 @@ private:
                 cpg_state_ = CPGState::STARTING;
                 amplitude_factor_ = 0.0;
                 ramp_start_time_ = this->now();
+                amplitude_envelope_.set(1.0, ramp_start_time_.seconds(), ramp_time_);
                 publish_state("STARTING");
                 RCLCPP_INFO(this->get_logger(), "CPG 启动：开始渐入 (ramp_time=%.2fs)", ramp_time_);
             }
             else if (cpg_state_ == CPGState::STOPPING)
             {
-                // 停止中反悔 → 重新启动：从当前 A 反向渐入
-                cpg_state_ = CPGState::STARTING;
-                ramp_start_time_ = this->now();
-                publish_state("STARTING");
-                RCLCPP_INFO(this->get_logger(), "CPG 重新启动：从 A=%.3f 开始渐入", amplitude_factor_);
+                RCLCPP_WARN(this->get_logger(), "停止渐出期间忽略 start；进入 IDLE 后可重新启动");
             }
             else
             {
-                RCLCPP_WARN(this->get_logger(), "CPG 当前状态非 IDLE/STOPPING，忽略 start 指令");
+                RCLCPP_WARN(this->get_logger(), "CPG 当前状态非 IDLE，忽略 start 指令");
             }
         }
         else if (cmd == "stop" || cmd == "STOP")
@@ -693,8 +609,8 @@ private:
             if (cpg_state_ == CPGState::WALKING || cpg_state_ == CPGState::STARTING || cpg_state_ == CPGState::SWITCHING)
             {
                 cpg_state_ = CPGState::STOPPING;
-                stop_start_amplitude_ = amplitude_factor_;
                 ramp_start_time_ = this->now();
+                amplitude_envelope_.set(0.0, ramp_start_time_.seconds(), ramp_time_);
                 publish_state("STOPPING");
                 RCLCPP_INFO(this->get_logger(), "CPG 停止：开始渐出 (A=%.3f)", amplitude_factor_);
             }
@@ -722,6 +638,12 @@ private:
             return;
         }
 
+        if (cpg_state_ == CPGState::STARTING || cpg_state_ == CPGState::SWITCHING ||
+            cpg_state_ == CPGState::STOPPING) {
+            RCLCPP_WARN(this->get_logger(), "启停或切换中忽略模式请求，完成后请重新提交");
+            return;
+        }
+
         // 如果目标 mode 与当前相同，忽略
         if (mode_name == current_gait_name_)
         {
@@ -733,7 +655,10 @@ private:
         if (cpg_state_ == CPGState::IDLE)
         {
             current_gait_name_ = mode_name;
-            current_gait_ = &gait_library_[current_gait_name_];
+            active_gait_ = gait_library_.at(current_gait_name_);
+            current_gait_ = &active_gait_;
+            omega_ = active_gait_.omega;
+            switch_active_ = false;
 
             auto out = std_msgs::msg::String();
             out.data = current_gait_name_;
@@ -744,8 +669,8 @@ private:
             return;
         }
 
-        // 如果当前是 WALKING、STARTING 或 SWITCHING 状态，开始平滑过渡
-        if (cpg_state_ == CPGState::WALKING || cpg_state_ == CPGState::STARTING || cpg_state_ == CPGState::SWITCHING)
+        // 仅在稳定行走状态开始平滑过渡
+        if (cpg_state_ == CPGState::WALKING)
         {
             GaitMode *target_gait = &gait_library_[mode_name];
 
@@ -783,10 +708,10 @@ private:
             switch_target_gait_ = mode_name;
             switch_target_gait_ptr_ = target_gait;
 
-            // 开始过渡，停止参数更新
+            // 开始过渡，保留连续振荡器状态
             switch_start_time_ = this->now();
             cpg_state_ = CPGState::SWITCHING;
-            deactivate_param_timer();
+            switch_active_ = true;
             publish_state("SWITCHING");
 
             RCLCPP_INFO(this->get_logger(), "Gait mode 平滑过渡开始: '%s' -> '%s' (omega: %.3f -> %.3f, 过渡时间=%.2fs)",
@@ -799,95 +724,9 @@ private:
         RCLCPP_WARN(this->get_logger(), "CPG 当前状态为 STOPPING，忽略 gait mode 切换指令");
     }
 
-    // ==================== 振幅因子计算 ====================
-    // 使用半余弦窗函数实现 C1 连续（无速度跳变）
-    //   A(t) = 0.5 * (1 - cos(π * t/T))   渐入: 0→1
-    //   A(t) = 0.5 * (1 + cos(π * t/T))   渐出: 1→0
-    double compute_amplitude_factor()
+    Sample compute_switch_progress(const rclcpp::Time &now) const
     {
-        double elapsed = (this->now() - ramp_start_time_).seconds();
-        double T = ramp_time_;
-        if (T < 0.01) T = 0.01; // 最小保护
-
-        switch (cpg_state_)
-        {
-        case CPGState::IDLE:
-            return 0.0;
-
-        case CPGState::STARTING:
-        {
-            double t = std::clamp(elapsed / T, 0.0, 1.0);
-            // 半余弦渐入: A(0)=0, A(T)=1, dA/dt 在两端均为 0
-            return 0.5 * (1.0 - std::cos(M_PI * t));
-        }
-
-        case CPGState::WALKING:
-            return 1.0;
-
-        case CPGState::STOPPING:
-        {
-            double t = std::clamp(elapsed / T, 0.0, 1.0);
-            // 从 stop_start_amplitude_ 平滑衰减到 0
-            // A(t) = stop_start_amplitude_ * 0.5 * (1 + cos(π * t))
-            return stop_start_amplitude_ * 0.5 * (1.0 + std::cos(M_PI * t));
-        }
-
-        case CPGState::SWITCHING:
-            // 切换过程中保持全振幅，输出插值在 on_timer 中处理
-            return 1.0;
-
-        default:
-            return 0.0;
-        }
-    }
-
-    // ==================== 振幅因子导数 dA/dt ====================
-    double compute_d_amplitude_dt(double /*dt*/)
-    {
-        double elapsed = (this->now() - ramp_start_time_).seconds();
-        double T = ramp_time_;
-        if (T < 0.01) T = 0.01;
-
-        switch (cpg_state_)
-        {
-        case CPGState::IDLE:
-            return 0.0;
-
-        case CPGState::STARTING:
-        {
-            double t = std::clamp(elapsed / T, 0.0, 1.0);
-            // dA/dt = 0.5 * (π/T) * sin(π*t/T)
-            return 0.5 * (M_PI / T) * std::sin(M_PI * t);
-        }
-
-        case CPGState::WALKING:
-            return 0.0;
-
-        case CPGState::STOPPING:
-        {
-            double t = std::clamp(elapsed / T, 0.0, 1.0);
-            // dA/dt = -stop_start * 0.5 * (π/T) * sin(π*t/T)
-            return -stop_start_amplitude_ * 0.5 * (M_PI / T) * std::sin(M_PI * t);
-        }
-
-        case CPGState::SWITCHING:
-            return 0.0;
-
-        default:
-            return 0.0;
-        }
-    }
-
-    // ==================== 计算切换过渡进度 ====================
-    // 返回 0.0 ~ 1.0 的平滑过渡因子
-    // 使用五次多项式 6t^5 - 15t^4 + 10t^3，C2 连续（位置、速度、加速度都连续）
-    double compute_switch_progress()
-    {
-        double elapsed = (this->now() - switch_start_time_).seconds();
-        double t = std::clamp(elapsed / switch_duration_, 0.0, 1.0);
-        // 五次多项式: s(t) = 6t^5 - 15t^4 + 10t^3
-        // s(0)=0, s(1)=1, s'(0)=s'(1)=0, s''(0)=s''(1)=0
-        return t * t * t * (t * (6.0 * t - 15.0) + 10.0);
+        return cpg_controller::progress((now - switch_start_time_).seconds(), switch_duration_);
     }
 
     // ==================== 发布状态 ====================
@@ -896,19 +735,6 @@ private:
         auto msg = std_msgs::msg::String();
         msg.data = state_str;
         state_pub_->publish(msg);
-    }
-
-    // ==================== 从 TF 获取目标角度 ====================
-    double get_target_from_tf(const std::string & /*joint_name*/, double current_cpg)
-    {
-        try
-        {
-            return current_cpg;
-        }
-        catch (...)
-        {
-            return current_cpg;
-        }
     }
 
     // ==================== 参数更新 ====================
@@ -922,29 +748,32 @@ private:
         publish_ankle_ = this->get_parameter("publish_ankle").as_bool();
         parameter_target_timeout_s_ = this->get_parameter("parameter_target_timeout_s").as_double();
 
-        // omega 和 max_h_ 从当前 gait mode 读取
+        modulation_transition_s_ = get_parameter("modulation_transition_s").as_double();
+        const double perturbation = get_parameter("initial_perturbation").as_double();
+        if (!std::isfinite(mu_) || mu_ <= 0 || !std::isfinite(gamma_) || gamma_ <= 0 ||
+            !std::isfinite(ramp_time_) || ramp_time_ < 0.01 ||
+            !std::isfinite(parameter_target_timeout_s_) || parameter_target_timeout_s_ < 0 ||
+            !std::isfinite(modulation_transition_s_) || modulation_transition_s_ < 0.01 ||
+            !std::isfinite(perturbation) || perturbation <= 0 || perturbation > 1)
+            throw std::runtime_error("Invalid CPG dynamics/timing parameters");
+        if (eta_w_ != 0.0 || eta_omega_ != 0.0)
+            throw std::runtime_error("Online learning is not implemented; eta_w/eta_omega must remain zero");
         omega_ = current_gait_->omega;
-        max_h_ = 1;
-        for (auto &pair : current_gait_->joints)
-            max_h_ = std::max(max_h_, pair.second.num_harmonics - 1);
     }
 
     // ==================== 成员变量 ====================
     // 振荡器状态
     double x_, y_, omega_;
     double mu_, gamma_, eta_w_, eta_omega_;
-    int max_h_;
-
-    // 谐波特征（成员变量，供切换过渡时使用）
-    std::vector<double> hx_{5, 0.0}, hy_{5, 0.0};
-    std::vector<double> dhx_{5, 0.0}, dhy_{5, 0.0};  // 谐波时间导数
 
     // 启停状态机
     CPGState cpg_state_;
     double amplitude_factor_;       // A(t) ∈ [0, 1]
-    double stop_start_amplitude_;   // 进入 STOPPING 瞬间的 A 值
+    cpg_controller::Transition amplitude_envelope_;   // 启停包络及其时间导数
     double ramp_time_;              // 渐入/渐出时间常数
     rclcpp::Time ramp_start_time_;  // 当前渐变阶段的起始时刻
+
+    bool switch_active_ = false;
 
     // Mode 切换过渡态
     std::string switch_target_gait_;           // 目标 gait mode 名称
@@ -964,9 +793,18 @@ private:
     std::vector<double> amplitude_scales_;
     std::vector<double> offset_deltas_;
 
+    cpg_controller::PositiveTransition omega_modulation_;
+    std::array<cpg_controller::PositiveTransition, 6> amplitude_modulation_{};
+    std::array<cpg_controller::Transition, 6> offset_modulation_{};
+    double modulation_transition_s_{0.5}, last_parameter_stamp_{0};
+    cpg_controller::MeasurementInput measurements_;
+    double measurement_timeout_s_{0.1};
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr measurement_sub_;
+
     // Gait Library
     std::map<std::string, GaitMode> gait_library_;
     std::string current_gait_name_;
+    GaitMode active_gait_;  // mutable runtime copy; library remains an immutable prior
     GaitMode *current_gait_;
 
     std::vector<std::string> joint_names_;
@@ -974,8 +812,6 @@ private:
 
     // ROS 2 基础设施
     rclcpp::TimerBase::SharedPtr cpg_timer_;      // CPG 积分定时器 (500Hz)
-    rclcpp::TimerBase::SharedPtr param_timer_;    // 参数更新定时器 (100Hz)
-    bool param_timer_active_;                     // 参数更新定时器是否激活
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr cpg_pub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr cpg_ref_pub_;
@@ -986,8 +822,6 @@ private:
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr gait_mode_cmd_sub_;
     rclcpp::Publisher<terrain_adaptive_cpg::msg::CPGDebug>::SharedPtr cpg_debug_pub_;
     rclcpp::Subscription<terrain_adaptive_cpg::msg::CPGParameterTarget>::SharedPtr parameter_target_sub_;
-    std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
-    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
     rclcpp::Time last_time_;
     rclcpp::Time last_parameter_target_time_;
 };

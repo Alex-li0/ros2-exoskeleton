@@ -12,9 +12,20 @@
   <depend>rclcpp</depend>
   <depend>std_msgs</depend>
   <depend>sensor_msgs</depend>
-  <depend>tf2_ros</depend>
   <depend>terrain_adaptive_cpg</depend>
+  <depend>exo_state_estimator</depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-matplotlib</exec_depend>
   
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>rclpy</test_depend>
+  <test_depend>python3-yaml</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 

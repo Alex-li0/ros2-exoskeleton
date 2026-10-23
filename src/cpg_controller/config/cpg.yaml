@@ -11,11 +11,14 @@ adaptive_cpg_node:
 
     # === 踝关节开关 ===
     # true: 仿真时输出 CPG 踝关节角度 (可视化)
-    # false: 实机时踝关节锁定 w_offset (被动关节不助力)
+    # false: 踝关节参考位置和速度均输出 0（被动关节）
     publish_ankle: true
     # 生产连续调制尚无标定数据，0.0 表示 CPG 不接受连续参数目标。
     # TODO(data_required): 获得地形转换数据后再配置正超时值并启用。
     parameter_target_timeout_s: 0.0
+    modulation_transition_s: 0.5  # 连续参数目标及超时回退的平滑时间
+    observe_measurements: false  # 仅缓存 /cpg/measured_joint_states，不开启学习
+    measurement_timeout_s: 0.1
 
     # === Gait Library ===
     # default_gait: 启动时加载的 gait mode
