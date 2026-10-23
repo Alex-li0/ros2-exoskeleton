@@ -11,6 +11,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import tempfile
 
 import matplotlib
 matplotlib.use('Agg')
@@ -264,8 +265,7 @@ def main():
             pass
     default_template = source_root/'config/cpg.yaml' if source_layout else (
         share/'config/cpg.yaml' if share else None)
-    default_output = source_root.parents[1]/'output/adaptive_learning' if source_layout else (
-        Path.cwd()/'output/adaptive_learning')
+    default_output = Path(tempfile.gettempdir())/'cpg_experiments/adaptive_learning'
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--template', type=Path, default=default_template)
     parser.add_argument('--output', type=Path, default=default_output)

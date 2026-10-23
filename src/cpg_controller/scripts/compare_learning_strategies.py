@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import tempfile
 
 import matplotlib
 matplotlib.use('Agg')
@@ -337,7 +338,7 @@ def main():
     root=Path(__file__).resolve().parents[1]
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--template',type=Path,default=root/'config/cpg.yaml')
-    parser.add_argument('--output',type=Path,default=root.parents[1]/'output/learning_strategy_comparison')
+    parser.add_argument('--output',type=Path,default=Path(tempfile.gettempdir())/'cpg_experiments/learning_strategy_comparison')
     parser.add_argument('--duration',type=float,default=50.)
     parser.add_argument('--cases',nargs='+',choices=CASES,default=CASES)
     parser.add_argument('--probe',type=Path)

@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import tempfile
 
 import matplotlib
 matplotlib.use('Agg')
@@ -65,9 +66,11 @@ def window_stats(t, error, phase_error, mask, rom):
 def main():
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--data', type=Path, default=root.parents[1]/'output/learning_strategy_comparison')
-    parser.add_argument('--output', type=Path, default=root.parents[1]/'output/learning_error_audit')
+    parser.add_argument('--data', type=Path, default=Path(tempfile.gettempdir())/'cpg_experiments/learning_strategy_comparison')
+    parser.add_argument('--output', type=Path, default=Path(tempfile.gettempdir())/'cpg_experiments/learning_error_audit')
     args = parser.parse_args()
+    if not (args.data/'metrics.json').is_file():
+        parser.error('Missing experiment traces; run compare_learning_strategies.py first or pass --data')
     args.output.mkdir(parents=True, exist_ok=True)
     original = json.loads((args.data/'metrics.json').read_text())
     cfg_path = root/'config/cpg.yaml'

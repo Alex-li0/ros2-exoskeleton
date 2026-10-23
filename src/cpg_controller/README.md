@@ -107,7 +107,7 @@ ros2 launch cpg_controller adaptive_cpg_shadow.launch.py enable_learning:=true
 
 固定模板对照同样使用归一化核心并保持原始参数，代表原始参数轨迹，不是旧节点启动暂态的逐点复刻。
 每组对比固定模板、仅节律学习、完整学习和无事件学习，输出
-`output/adaptive_learning/README.md`、`metrics.json`、输入/输出 CSV 和六关节曲线。
+`/tmp/cpg_experiments/adaptive_learning/README.md`、`metrics.json`、输入/输出 CSV 和六关节曲线。
 指标区分原始重构、原模板限幅后的参考、基频与实际推进速率，以及 LOCKED 时与全程的速度差分。
 没有事件时，系数与相位存在共同旋转的自由度；角度误差更小不代表生理相位更准确。
 这些结果属于模型内合成验证。
@@ -136,7 +136,7 @@ ros2 launch cpg_controller adaptive_learning_demo.launch.py case:=combined durat
 ros2 launch cpg_controller adaptive_learning_demo.launch.py shape_requires_lock:=false
 ```
 
-对照输出位于 `output/learning_strategy_comparison`。十种场景包括前述六种输入，
+对照默认输出位于 `/tmp/cpg_experiments/learning_strategy_comparison`。十种场景包括前述六种输入，
 以及运行中的平滑相位变化、固定测量偏置、幅值阶跃和启动即存在的形状失配。
 实验脚本保留变化开始后 3/5 s、最后 8 s、逐关节误差及恢复时间等原始统计；
 当前研究报告另外从原始 CSV 重算起点后 1 s、持续变化过程末 1 s、最后 2 s 与过程峰值，
@@ -162,3 +162,7 @@ colcon test-result --test-result-base build/cpg_controller/test_results --verbos
 节点测试使用独立 ROS domain、随机前缀重映射全部控制话题、临时日志目录，
 不启动硬件或控制器。覆盖启停、重复切换、停止与切换并发、参数回放/超时、踝输出和非法配置。
 这些测试不构成人体佩戴、实时调度或硬件安全验证。
+
+## 实验产物的位置
+
+离线评估、策略对比和误差审计默认写入系统临时目录下的 `cpg_experiments/`，本机通常为 `/tmp/cpg_experiments/`；可用 `--output` 自行指定。根目录运行产物已按用户要求删除，原完整合成CSV和审计重跑数据不再保留；报告工程中的汇总和代表性样本仍可阅读，重新评分须先重跑实验。临时目录可能被清理，真人记录或需长期保存的结果应指定持久位置。
